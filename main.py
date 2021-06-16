@@ -2,19 +2,22 @@
 
 # In this, we:
 
-# Train a tf.keras model for MNIST from scratch.
-# Fine tune the model by applying the quantization aware training API, see the accuracy, and export a quantization aware model.
-# Use the model to create an actually quantized model for the TFLite backend.
-# See the persistence of accuracy in TFLite and a 4x smaller model.
+# - Train a tf.keras model for MNIST from scratch.
+# - Fine tune the model by applying the quantization aware training API, see the accuracy, and export a quantization aware model.
+# - Use the model to create an actually quantized model for the TFLite backend.
+# - See the persistence of accuracy in TFLite and a 4x smaller model.
 
 import os
 import tempfile
 
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
+
 import numpy as np
 import tensorflow as tf
+import tensorflow_model_optimization as tfmot
 
-os.environ["TF_CPP_MIN_LOG_LEVEL"] = 2
 from tensorflow import keras
+from pprint import pprint
 
 # Train a model for MNIST without quantization aware training
 
@@ -58,8 +61,6 @@ model.fit(
 # You will apply quantization aware training to the whole model and see this in the model summary. All layers are now prefixed by "quant".
 
 # Note that the resulting model is quantization aware but not quantized (e.g. the weights are float32 instead of int8). The sections after show how to create a quantized model from the quantization aware one.
-
-import tensorflow_model_optimization as tfmot
 
 quantize_model = tfmot.quantization.keras.quantize_model
 
@@ -107,8 +108,6 @@ quantized_tflite_model = converter.convert()
 
 # See persistence of accuracy from TF to TFLite
 # Define a helper function to evaluate the TF Lite model on the test dataset.
-
-from pprint import pprint
 
 
 def evaluate_model(interpreter):
