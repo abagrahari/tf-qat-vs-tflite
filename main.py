@@ -11,7 +11,7 @@
 import os
 
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
-MODEL_TYPE = "CNN"
+MODEL_TYPE = "CNN"  # Set to 'CNN' or 'dense3' or 'dense4' etc.
 
 import numpy as np
 import tensorflow as tf
@@ -20,6 +20,7 @@ from tensorflow import keras
 
 import utils
 
+# Set seed for reproducibility
 tf.random.set_seed(4)
 
 # Train a model for MNIST without quantization aware training
@@ -74,10 +75,9 @@ model.fit(
 
 
 # Clone and fine-tune pre-trained model with quantization aware training
-# Define the model
-# You will apply quantization aware training to the whole model and see this in the model summary. All layers are now prefixed by "quant".
-
-# Note that the resulting model is quantization aware but not quantized (e.g. the weights are float32 instead of int8). The sections after show how to create a quantized model from the quantization aware one.
+# We QAT to the whole model and can see this in the model summary. All layers are now prefixed by "quant".
+# Note: the resulting model is quantization aware but not quantized (e.g. the weights are float32 instead of int8).
+# The sections after show how to create a quantized model from the quantization aware one, using the TFLiteConverter
 
 quantize_model = tfmot.quantization.keras.quantize_model
 
@@ -109,9 +109,7 @@ qat_model.fit(
 
 # there is minimal to no loss in test accuracy after quantization aware training, compared to the baseline.
 _, baseline_model_accuracy = model.evaluate(test_images, test_labels, verbose=0)
-_, q_aware_model_accuracy = qat_model.evaluate(test_images, test_labels, verbose=0)
-print("Baseline test accuracy:", baseline_model_accuracy)
-print("Quant test accuracy:", q_aware_model_accuracy)
+_, qat_model_accuracy = qat_model.evaluate(test_images, test_labels, verbose=0)
 
 # Create quantized model for TFLite backend, using 'Dynamic range quantization'
 # After this, we have an actually quantized model with int8 weights and uint8 activations.
@@ -120,19 +118,27 @@ converter.optimizations = [tf.lite.Optimize.DEFAULT]
 # TF's QAT example uses Dynamic range quantization
 
 # Converter options for all INT8 conversion:
-# TODO use representive_dataset (full integer quantization)
+# TODO try using representive_dataset for full integer quantization
+# def representative_dataset():
+#     for data in tf.data.Dataset.from_tensor_slices(train_images).batch(1).take(100):
+#         yield [data]
 # converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
-# converter.inference_input_type = tf.int8  # or tf.uint8
-# converter.inference_output_type = tf.int8  # or tf.uint8
-# converter.representative_dataset =representative_dataset
+# converter.inference_input_type = tf.int8  # or tf.uint8 for Coral Edge TPU
+# converter.inference_output_type = tf.int8  # or tf.uint8 for Coral Edge TPU
+# converter.representative_dataset = representative_dataset
 quantized_tflite_model = converter.convert()
 
 # Evaluate the quantized model and see that the accuracy from TensorFlow persists to the TFLite backend.
 interpreter = tf.lite.Interpreter(model_content=quantized_tflite_model)
 interpreter.allocate_tensors()
 
+# input_type = interpreter.get_input_details()[0]["dtype"]
+# print("tflite input: ", input_type)
+# output_type = interpreter.get_output_details()[0]["dtype"]
+# print("tflite output: ", output_type)
 
-def tflite_predict(interpreter: tf.lite.Interpreter):
+
+def run_tflite_model(interpreter: tf.lite.Interpreter):
     """Helper function to return outputs on the test dataset using the TF Lite model."""
     # https://www.tensorflow.org/lite/guide/inference#load_and_run_a_model_in_python
     input_index = interpreter.get_input_details()[0]["index"]
@@ -160,8 +166,8 @@ def evaluate_model(interpreter):
 
     # Run predictions on every image in the "test" dataset.
     prediction_digits = []
-    outs = tflite_predict(interpreter)
-    for output in outs:
+    outputs = run_tflite_model(interpreter)
+    for output in outputs:
         digit = np.argmax(output)
         prediction_digits.append(digit)
 
@@ -171,24 +177,21 @@ def evaluate_model(interpreter):
     return accuracy
 
 
-test_accuracy = evaluate_model(interpreter)
-print("Quant TF test accuracy:", q_aware_model_accuracy)
-print("Quant TFLite test_accuracy:", test_accuracy)
+tflite_model_accuracy = evaluate_model(interpreter)
 
-# Run on QAT model
+print("Baseline test accuracy:", baseline_model_accuracy)
+print("QAT test accuracy:", qat_model_accuracy)
+print("TFLite test_accuracy:", tflite_model_accuracy)
+
+# Run on baseline, QAT, and TFLite models
+base_output = model.predict(test_images)
 qat_output = qat_model.predict(test_images)
-# Run on tflite
-tflite_output = tflite_predict(interpreter)
+tflite_output = run_tflite_model(interpreter)
 
+base_output = base_output.flatten()
 qat_output = qat_output.flatten()
 tflite_output = tflite_output.flatten()
 
-
-outputs_close = np.allclose(qat_output, tflite_output, rtol=0, atol=1e-2)
-utils.output_stats(
-    qat_output,
-    tflite_output,
-    MODEL_TYPE,
-    outputs_close,
-    1e-2,
-)
+utils.output_stats(base_output, qat_output, "Base vs QAT", MODEL_TYPE, 1e-2)
+utils.output_stats(base_output, tflite_output, "Base vs TFLite", MODEL_TYPE, 1e-2)
+utils.output_stats(qat_output, tflite_output, "QAT vs TFLite", MODEL_TYPE, 1e-2)

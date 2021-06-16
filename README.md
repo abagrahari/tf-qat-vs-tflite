@@ -10,7 +10,9 @@ Using the skeleton from [TensorFlow's QAT Example](https://www.tensorflow.org/mo
 - `jupyter-lab`
 
 ## TF's Documentation on running a model with tflite
-- https://www.tensorflow.org/lite/guide/inference#load_and_run_a_model_in_python
-- https://colab.research.google.com/github/tensorflow/examples/blob/master/lite/codelabs/digit_classifier/ml/step2_train_ml_model.ipynb#scrollTo=tfer6hI8ljEh
-- Converting to tflite
-    - https://www.tensorflow.org/lite/performance/post_training_quantization#dynamic_range_quantization
+- Running a tflite model
+    - https://www.tensorflow.org/lite/guide/inference#load_and_run_a_model_in_python
+- https://colab.research.google.com/github/tensorflow/examples/blob/master/lite/codelabs/digit_classifier/ml/step2_train_ml_model.ipynb#scrollTo=ahTP3T60nYJb
+- Converting to tflite, with quantization
+    - https://www.tensorflow.org/lite/performance/post_training_quantization
+    - https://www.tensorflow.org/lite/performance/post_training_integer_quant
