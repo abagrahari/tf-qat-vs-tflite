@@ -1,17 +1,14 @@
-# End-to-end example for quantization aware training.
+# End-to-end example for quantization aware training + tflite
 
-# In this, we:
-
+# Here we:
 # - Train a tf.keras model for MNIST from scratch.
 # - Fine tune the model by applying the quantization aware training API, see the accuracy, and export a quantization aware model.
 # - Use the model to create an actually quantized model for the TFLite backend.
-# - See the persistence of accuracy in TFLite and a 4x smaller model.
+# - See the persistence of accuracy in the TFLite model.
 
-# The aim is to check for equivalence between a QAT model and
-# its equivalent TFLite model running on a PC.
+# The aim is to check for equivalence between a QAT model and its TFLite model
 
 import os
-import warnings
 
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 MODEL_TYPE = "CNN"
@@ -19,8 +16,9 @@ MODEL_TYPE = "CNN"
 import numpy as np
 import tensorflow as tf
 import tensorflow_model_optimization as tfmot
-
 from tensorflow import keras
+
+import utils
 
 tf.random.set_seed(4)
 
@@ -93,7 +91,7 @@ qat_model.compile(
     metrics=["accuracy"],
 )
 
-qat_model.summary()
+# qat_model.summary()
 
 # Train and evaluate the model against baseline
 # To demonstrate fine tuning after training the model for just an epoch, fine tune with quantization aware training on a subset of the training data.
@@ -159,24 +157,12 @@ def tflite_predict(interpreter: tf.lite.Interpreter):
 
 def evaluate_model(interpreter):
     """Helper function to evaluate the TF Lite model on the test dataset."""
-    input_index = interpreter.get_input_details()[0]["index"]
-    output_index = interpreter.get_output_details()[0]["index"]
 
     # Run predictions on every image in the "test" dataset.
     prediction_digits = []
-    for test_image in test_images:
-        # Pre-processing: add batch dimension and convert to float32 to match with
-        # the model's input data format.
-        test_image = np.expand_dims(test_image, axis=0).astype(np.float32)
-        interpreter.set_tensor(input_index, test_image)
-
-        # Run inference.
-        interpreter.invoke()
-
-        # Post-processing: remove batch dimension and find the digit with highest
-        # probability.
-        output = interpreter.tensor(output_index)
-        digit = np.argmax(output()[0])
+    outs = tflite_predict(interpreter)
+    for output in outs:
+        digit = np.argmax(output)
         prediction_digits.append(digit)
 
     # Compare prediction results with ground truth labels to calculate accuracy.
@@ -198,33 +184,11 @@ qat_output = qat_output.flatten()
 tflite_output = tflite_output.flatten()
 
 
-def output_stats(x, y, model: str, test_status: bool, tol: float):
-    """Output summary statistics"""
-    err = np.abs(x - y)
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        err_rel = err / np.abs(y)
-        # Ignore "divide by zero" RuntimeWarning
-    # Filter out nan and inf created by dividing by 0
-    err_rel = err_rel[np.isfinite(err_rel)]
-
-    status = "Passed" if test_status else "Failed"
-    print(f"--------------------- RESULTS ---------------------")
-    print(f"Model: {model}; TestStatus: {status}")
-    print(f"Max Error: {np.max(err)}")
-    print(f"Max Relative Error: {np.max(err_rel)}")
-    print(f"Mean Error: {np.mean(err)}")
-    print("-------------------------------------------------")
-
-
 outputs_close = np.allclose(qat_output, tflite_output, rtol=0, atol=1e-2)
-output_stats(
+utils.output_stats(
     qat_output,
     tflite_output,
     MODEL_TYPE,
     outputs_close,
     1e-2,
 )
-
-# Conclusion
-# In this tutorial, you saw how to create quantization aware models with the TensorFlow Model Optimization Toolkit API and then quantized models for the TFLite backend.
