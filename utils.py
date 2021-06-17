@@ -26,3 +26,4 @@ def output_stats(x: np.ndarray, y: np.ndarray, test_name: str, model: str, tol: 
     print(f"Max Relative Error: {np.max(err_rel)}")
     print(f"Mean Error: {np.mean(err)}")
     print(f"Outputs not close: {num_mismatch/x.shape[0]*100}% of {x.shape[0]}")
+    print()
