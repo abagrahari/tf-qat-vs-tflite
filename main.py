@@ -3,16 +3,20 @@
 
 # Here we:
 # - Train a tf.keras model for MNIST from scratch.
-# - Fine tune the model by applying the quantization aware training API, and export a quantization aware model.
+# - Fine tune the model by applying the quantization aware training API, and create a quantization aware model.
 # - Use the model to create an actually-quantized model for TFLite.
 # - See the persistence of accuracy in the TFLite model.
 # - Compare the error in raw output values.
 
 
 import os
+import sys
 
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
-MODEL_TYPE = "CNN"  # Set to 'CNN' or 'dense3' or 'dense4' etc.
+MODEL_TYPE = "dense4"  # Set to 'CNN' or 'dense3' or 'dense4' etc.
+QUANTIZE_TO_8BIT = True
+SEED = 3
+sys.stdout = open(f"{MODEL_TYPE}_{QUANTIZE_TO_8BIT}_{SEED}.txt", "w")
 
 import numpy as np
 import tensorflow as tf
@@ -22,7 +26,7 @@ from tensorflow import keras
 import utils
 
 # Set seed for reproducibility
-tf.random.set_seed(4)
+tf.random.set_seed(SEED)
 
 # Train a model for MNIST without quantization aware training
 
@@ -68,17 +72,15 @@ model.compile(
     metrics=["accuracy"],
 )
 
-model.fit(
-    train_images,
-    train_labels,
-    epochs=1,
-    validation_split=0.1,
-)
+model.fit(train_images, train_labels, epochs=1, validation_split=0.1, verbose=2)
 
 # Clone and fine-tune the regularaly trained model with quantization aware training
-# We apply QAT to the whole model and can see this in the model summary. All layers are now prefixed by "quant".
-# Note: the resulting model is quantization aware but not quantized (e.g. the weights are float32 instead of int8).
-# The sections after will create a quantized model from the quantization aware one, using the TFLiteConverter
+# We apply QAT to the whole model and can see this in the model summary.
+# All layers are now prefixed by "quant".
+# Note: the resulting model is quantization aware but not quantized (e.g. the
+# weights are float32 instead of int8).
+# The sections after will create a quantized model from the quantization aware one,
+# using the TFLiteConverter
 
 quantize_model = tfmot.quantization.keras.quantize_model
 
@@ -94,7 +96,8 @@ qat_model.compile(
 
 # qat_model.summary()
 
-# To demonstrate fine tuning after training the model for just an epoch, fine tune with quantization aware training on a subset of the training data.
+# To demonstrate fine tuning after training the model for just an epoch,
+# fine tune with quantization aware training on a subset of the training data.
 train_images_subset = train_images[0:1000]  # out of 60000
 train_labels_subset = train_labels[0:1000]
 qat_model.fit(
@@ -103,6 +106,7 @@ qat_model.fit(
     batch_size=500,
     epochs=1,
     validation_split=0.1,
+    verbose=2,
 )
 
 # We'll see minimal to no loss in test accuracy after quantization aware training, compared to the baseline.
@@ -118,15 +122,21 @@ converter.optimizations = [tf.lite.Optimize.DEFAULT]
 
 
 def representative_dataset():
-    for data in tf.data.Dataset.from_tensor_slices(train_images).batch(1).take(100):
+    for data in (
+        tf.data.Dataset.from_tensor_slices(train_images)
+        .shuffle(train_images.shape[0])
+        .batch(1)
+        .take(1000)
+    ):
         yield [tf.dtypes.cast(data, tf.float32)]
 
 
-# For all INT8 conversion, we need some additional converter settings:
-# converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
-# converter.inference_input_type = tf.int8  # or tf.uint8 for Coral Edge TPU
-# converter.inference_output_type = tf.int8  # or tf.uint8 for Coral Edge TPU
-# converter.representative_dataset = representative_dataset
+if QUANTIZE_TO_8BIT:
+    # For all INT8 conversion, we need some additional converter settings:
+    converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
+    converter.inference_input_type = tf.int8  # or tf.uint8 for Coral Edge TPU
+    converter.inference_output_type = tf.int8  # or tf.uint8 for Coral Edge TPU
+    converter.representative_dataset = representative_dataset
 quantized_tflite_model = converter.convert()
 
 
@@ -147,8 +157,13 @@ def run_tflite_model(tflite_model):
         if input_details["dtype"] in [np.uint8, np.int8]:
             input_scale, input_zero_point = input_details["quantization"]
             test_image = test_image / input_scale + input_zero_point
+            # The TensorFlow example does not have the np.round() op shown below.
+            # However during testing, without it, values like `125.99998498`
+            # are replaced with 125 instead of 126, since we would directly
+            # cast to int8/uint8
+            test_image = np.round(test_image)
 
-        # Pre-processing: add batch dimension and convert to float32 to match with
+        # Pre-processing: add batch dimension and convert to datatype to match with
         # the model's input data format.
         test_image = np.expand_dims(test_image, axis=0).astype(input_details["dtype"])
         interpreter.set_tensor(input_details["index"], test_image)
@@ -157,7 +172,9 @@ def run_tflite_model(tflite_model):
         interpreter.invoke()
 
         # Post-processing: remove batch dimension and dequantize the output
-
+        # based on TensorFlow's quantization params
+        # We dequantize the outputs so we can directly compare the raw
+        # outputs with the QAT model
         output = interpreter.get_tensor(output_details["index"])[0]
         if output_details["dtype"] in [np.uint8, np.int8]:
             output_scale, output_zero_point = output_details["quantization"]
@@ -207,3 +224,5 @@ utils.output_stats(
     baseline_output, tflite_output, "Baseline vs TFLite", MODEL_TYPE, 1e-2
 )
 utils.output_stats(qat_output, tflite_output, "QAT vs TFLite", MODEL_TYPE, 1e-2)
+
+sys.stdout.close()

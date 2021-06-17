@@ -10,7 +10,7 @@ def output_stats(x: np.ndarray, y: np.ndarray, test_name: str, model: str, tol: 
     outputs_close = np.allclose(x, y, rtol=0, atol=tol)
     status = "Passed" if outputs_close else "Failed"
     # Number of elements not matching
-    num_mismatch = x.shape[0] - np.count_nonzero(np.isclose(x, y, rtol=0, atol=tol))
+    num_mismatch = np.count_nonzero(~np.isclose(x, y, rtol=0, atol=tol))
 
     err = np.abs(x - y)
     with warnings.catch_warnings():
