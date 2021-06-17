@@ -11,12 +11,35 @@
 
 import os
 import sys
+import argparse
 
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
-MODEL_TYPE = "dense4"  # Set to 'CNN' or 'dense3' or 'dense4' etc.
-QUANTIZE_TO_8BIT = True
-SEED = 3
-sys.stdout = open(f"{MODEL_TYPE}_{QUANTIZE_TO_8BIT}_{SEED}.txt", "w")
+
+parser = argparse.ArgumentParser()
+
+parser.add_argument(
+    "--model",
+    help="Model type",
+    choices=["CNN", "dense1", "dense2", "dense3", "dense4"],
+    default="CNN",
+)
+parser.add_argument("--seed", help="seed for tf.random", type=int, default=3)
+parser.add_argument(
+    "--no-quantize", help="Don't quantize TFLite model to 8 bit", action="store_false"
+)
+parser.add_argument(
+    "--capture", help="write program output to a file", action="store_true"
+)
+args = parser.parse_args()
+
+
+MODEL_TYPE = args.model
+QUANTIZE_TO_8BIT = args.capture
+SEED = args.seed
+VERBOSITY = 2 if args.capture else 1
+
+if args.capture:
+    sys.stdout = open(f"{MODEL_TYPE}_{QUANTIZE_TO_8BIT}_{SEED}.txt", "w")
 
 import numpy as np
 import tensorflow as tf
@@ -72,7 +95,7 @@ model.compile(
     metrics=["accuracy"],
 )
 
-model.fit(train_images, train_labels, epochs=1, validation_split=0.1, verbose=2)
+model.fit(train_images, train_labels, epochs=1, validation_split=0.1, verbose=VERBOSITY)
 
 # Clone and fine-tune the regularaly trained model with quantization aware training
 # We apply QAT to the whole model and can see this in the model summary.
@@ -106,7 +129,7 @@ qat_model.fit(
     batch_size=500,
     epochs=1,
     validation_split=0.1,
-    verbose=2,
+    verbose=VERBOSITY,
 )
 
 # We'll see minimal to no loss in test accuracy after quantization aware training, compared to the baseline.
