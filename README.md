@@ -16,3 +16,4 @@ Using the skeleton from [TensorFlow's QAT Example](https://www.tensorflow.org/mo
 - Converting to tflite, with quantization
     - https://www.tensorflow.org/lite/performance/post_training_quantization
     - https://www.tensorflow.org/lite/performance/post_training_integer_quant
+    - https://stackoverflow.com/questions/62015923/why-the-accuracy-of-tf-lite-is-not-correct-after-quantization

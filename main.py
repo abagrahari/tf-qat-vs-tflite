@@ -75,7 +75,6 @@ model.fit(
     validation_split=0.1,
 )
 
-
 # Clone and fine-tune the regularaly trained model with quantization aware training
 # We apply QAT to the whole model and can see this in the model summary. All layers are now prefixed by "quant".
 # Note: the resulting model is quantization aware but not quantized (e.g. the weights are float32 instead of int8).
@@ -117,10 +116,13 @@ converter.optimizations = [tf.lite.Optimize.DEFAULT]
 # TF's QAT example uses Dynamic range quantization
 # These settings are used above.
 
+
+def representative_dataset():
+    for data in tf.data.Dataset.from_tensor_slices(train_images).batch(1).take(100):
+        yield [tf.dtypes.cast(data, tf.float32)]
+
+
 # For all INT8 conversion, we need some additional converter settings:
-# def representative_dataset():
-#     for data in tf.data.Dataset.from_tensor_slices(train_images).batch(1).take(100):
-#         yield [tf.dtypes.cast(data, tf.float32)]
 # converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
 # converter.inference_input_type = tf.int8  # or tf.uint8 for Coral Edge TPU
 # converter.inference_output_type = tf.int8  # or tf.uint8 for Coral Edge TPU
@@ -134,13 +136,7 @@ def run_tflite_model(tflite_model):
     """Helper function to return outputs on the test dataset using the TF Lite model."""
     # https://www.tensorflow.org/lite/guide/inference#load_and_run_a_model_in_python
     input_details = interpreter.get_input_details()[0]
-    input_index = input_details["index"]
-    output_index = interpreter.get_output_details()[0]["index"]
-
-    # input_type = input_details["dtype"]
-    # print("tflite input: ", input_type)
-    # output_type = interpreter.get_output_details()[0]["dtype"]
-    # print("tflite output: ", output_type)
+    output_details = interpreter.get_output_details()[0]
 
     # Run predictions on every image in the "test" dataset.
     outputs = []
@@ -148,20 +144,25 @@ def run_tflite_model(tflite_model):
 
         # Check if the input type is quantized, then rescale input data to uint8
         # as shown in TF's Post-Training Integer Quantization Example
-        # if input_details["dtype"] in [np.uint8, np.int8]:
-        #     input_scale, input_zero_point = input_details["quantization"]
-        #     test_image = test_image / input_scale + input_zero_point
+        if input_details["dtype"] in [np.uint8, np.int8]:
+            input_scale, input_zero_point = input_details["quantization"]
+            test_image = test_image / input_scale + input_zero_point
 
         # Pre-processing: add batch dimension and convert to float32 to match with
         # the model's input data format.
         test_image = np.expand_dims(test_image, axis=0).astype(input_details["dtype"])
-        interpreter.set_tensor(input_index, test_image)
+        interpreter.set_tensor(input_details["index"], test_image)
 
         # Run inference.
         interpreter.invoke()
 
-        # Post-processing: remove batch dimension
-        outputs.append(interpreter.get_tensor(output_index)[0])
+        # Post-processing: remove batch dimension and dequantize the output
+
+        output = interpreter.get_tensor(output_details["index"])[0]
+        if output_details["dtype"] in [np.uint8, np.int8]:
+            output_scale, output_zero_point = output_details["quantization"]
+            output = (output.astype(np.float32) - output_zero_point) * output_scale
+        outputs.append(output)
 
     return np.array(outputs)
 
