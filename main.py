@@ -9,9 +9,8 @@
 # - Compare the error in raw output values.
 
 
-import os
-import sys
 import argparse
+import os
 
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 
@@ -25,21 +24,14 @@ parser.add_argument(
 )
 parser.add_argument("--seed", help="seed for tf.random", type=int, default=3)
 parser.add_argument(
-    "--no-quantize", help="Don't quantize TFLite model to 8 bit", action="store_false"
-)
-parser.add_argument(
-    "--capture", help="write program output to a file", action="store_true"
+    "--quantize", help="Quantize TFLite model to 8 bit", action="store_true"
 )
 args = parser.parse_args()
 
 
 MODEL_TYPE = args.model
-QUANTIZE_TO_8BIT = args.capture
+QUANTIZE_TO_8BIT = args.quantize
 SEED = args.seed
-VERBOSITY = 2 if args.capture else 1
-
-if args.capture:
-    sys.stdout = open(f"{MODEL_TYPE}_{QUANTIZE_TO_8BIT}_{SEED}.txt", "w")
 
 import numpy as np
 import tensorflow as tf
@@ -95,7 +87,7 @@ model.compile(
     metrics=["accuracy"],
 )
 
-model.fit(train_images, train_labels, epochs=1, validation_split=0.1, verbose=VERBOSITY)
+model.fit(train_images, train_labels, epochs=1, validation_split=0.1, verbose=1)
 
 # Clone and fine-tune the regularaly trained model with quantization aware training
 # We apply QAT to the whole model and can see this in the model summary.
@@ -129,7 +121,7 @@ qat_model.fit(
     batch_size=500,
     epochs=1,
     validation_split=0.1,
-    verbose=VERBOSITY,
+    verbose=1,
 )
 
 # We'll see minimal to no loss in test accuracy after quantization aware training, compared to the baseline.
@@ -242,10 +234,12 @@ baseline_output = baseline_output.flatten()
 qat_output = qat_output.flatten()
 tflite_output = tflite_output.flatten()
 
-utils.output_stats(baseline_output, qat_output, "Baseline vs QAT", MODEL_TYPE, 1e-2)
 utils.output_stats(
-    baseline_output, tflite_output, "Baseline vs TFLite", MODEL_TYPE, 1e-2
+    baseline_output, qat_output, "Baseline vs QAT", MODEL_TYPE, 1e-2, SEED
 )
-utils.output_stats(qat_output, tflite_output, "QAT vs TFLite", MODEL_TYPE, 1e-2)
-
-sys.stdout.close()
+utils.output_stats(
+    baseline_output, tflite_output, "Baseline vs TFLite", MODEL_TYPE, 1e-2, SEED
+)
+utils.output_stats(
+    qat_output, tflite_output, "QAT vs TFLite", MODEL_TYPE, 1e-2, SEED, True
+)
