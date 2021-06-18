@@ -3,6 +3,18 @@ import warnings
 from pathlib import Path
 
 import numpy as np
+from tensorflow import keras
+
+
+def load_mnist():
+    # Load MNIST dataset
+    mnist = keras.datasets.mnist
+    (train_images, train_labels), (test_images, test_labels) = mnist.load_data()
+
+    # Normalize the images so that each pixel value is between 0 to 1.
+    train_images = train_images / 255.0
+    test_images = test_images / 255.0
+    return (train_images, train_labels), (test_images, test_labels)
 
 
 def output_stats(

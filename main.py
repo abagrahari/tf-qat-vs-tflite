@@ -14,6 +14,16 @@ import os
 
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 
+import numpy as np
+import tensorflow as tf
+import tensorflow_model_optimization as tfmot
+from tensorflow import keras
+from tensorflow_model_optimization.python.core.quantization.keras.default_8bit import (
+    default_8bit_quantize_registry,
+)
+
+import utils
+
 parser = argparse.ArgumentParser()
 
 parser.add_argument(
@@ -33,25 +43,12 @@ MODEL_TYPE = args.model
 QUANTIZE_TO_8BIT = args.quantize
 SEED = args.seed
 
-import numpy as np
-import tensorflow as tf
-import tensorflow_model_optimization as tfmot
-from tensorflow import keras
-
-import utils
-
 # Set seed for reproducibility
 tf.random.set_seed(SEED)
 
-# Train a model for MNIST without quantization aware training
-
+# Train a model for MNIST, first without quantization aware training
 # Load MNIST dataset
-mnist = keras.datasets.mnist
-(train_images, train_labels), (test_images, test_labels) = mnist.load_data()
-
-# Normalize the images so that each pixel value is between 0 to 1.
-train_images = train_images / 255.0
-test_images = test_images / 255.0
+(train_images, train_labels), (test_images, test_labels) = utils.load_mnist()
 
 # Define the model architecture.
 def get_model(model_type: str):
@@ -78,16 +75,18 @@ def get_model(model_type: str):
     return keras.Sequential(layers)
 
 
-model = get_model(MODEL_TYPE)
+baseline_model = get_model(MODEL_TYPE)
 
 # Train the digit classification model
-model.compile(
+baseline_model.compile(
     optimizer="adam",
     loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
     metrics=["accuracy"],
 )
 
-model.fit(train_images, train_labels, epochs=1, validation_split=0.1, verbose=1)
+baseline_model.fit(
+    train_images, train_labels, epochs=1, validation_split=0.1, verbose=1
+)
 
 # Clone and fine-tune the regularaly trained model with quantization aware training
 # We apply QAT to the whole model and can see this in the model summary.
@@ -100,7 +99,7 @@ model.fit(train_images, train_labels, epochs=1, validation_split=0.1, verbose=1)
 quantize_model = tfmot.quantization.keras.quantize_model
 
 # quantization aware model
-qat_model = quantize_model(model)
+qat_model = quantize_model(baseline_model)
 
 # `quantize_model` requires a recompile.
 qat_model.compile(
@@ -116,35 +115,57 @@ qat_model.compile(
 train_images_subset = train_images[0:1000]  # out of 60000
 train_labels_subset = train_labels[0:1000]
 qat_model.fit(
-    train_images_subset,
-    train_labels_subset,
+    train_images,
+    train_labels,
     batch_size=500,
     epochs=1,
     validation_split=0.1,
     verbose=1,
 )
 
+# save to SavedModel format. h5 format not compatible with QAT model
+# qat_model.save(f"saved_models/{MODEL_TYPE}_{SEED}_{QUANTIZE_TO_8BIT}_qat")
+
+# qat_model = keras.models.load_model(
+#     f"saved_models/{MODEL_TYPE}_{SEED}_{QUANTIZE_TO_8BIT}_qat"
+# )
+
+# MonkeyPatch to use AllValuesQuantizer instead of moving average
+# to match behaviour of TFLite representative dataset quantization
+# (it weights all items in the representative dataset equally,
+# it doesn't do a moving average)
+default_8bit_quantize_registry.quantizers.MovingAverageQuantizer = (
+    tfmot.quantization.keras.quantizers.AllValuesQuantizer,
+)
+
+# calibrate QAT model, after the monkey patch
+qat_model(train_images, training=True)
+
 # We'll see minimal to no loss in test accuracy after quantization aware training, compared to the baseline.
-_, baseline_model_accuracy = model.evaluate(test_images, test_labels, verbose=0)
+_, baseline_model_accuracy = baseline_model.evaluate(
+    test_images, test_labels, verbose=0
+)
 _, qat_model_accuracy = qat_model.evaluate(test_images, test_labels, verbose=0)
 
 # Create quantized model for TFLite backend
-# After this, we have an actually quantized model with int8 weights and uint8 activations.
-converter = tf.lite.TFLiteConverter.from_keras_model(qat_model)
-converter.optimizations = [tf.lite.Optimize.DEFAULT]
-# TF's QAT example uses Dynamic range quantization
-# These settings are used above.
+# After this, we will have an actually quantized model with int8 weights and uint8 activations.
 
 
 def representative_dataset():
+    # Use the same inputs as what QAT model saw
     for data in (
         tf.data.Dataset.from_tensor_slices(train_images)
         .shuffle(train_images.shape[0])
         .batch(1)
-        .take(1000)
+        .take(-1)  # Use all of dataset
     ):
         yield [tf.dtypes.cast(data, tf.float32)]
 
+
+converter = tf.lite.TFLiteConverter.from_keras_model(qat_model)
+converter.optimizations = [tf.lite.Optimize.DEFAULT]
+# TF's QAT example uses Dynamic range quantization
+# These settings are used above.
 
 if QUANTIZE_TO_8BIT:
     # For all INT8 conversion, we need some additional converter settings:
@@ -153,6 +174,9 @@ if QUANTIZE_TO_8BIT:
     converter.inference_output_type = tf.int8  # or tf.uint8 for Coral Edge TPU
     converter.representative_dataset = representative_dataset
 quantized_tflite_model = converter.convert()
+
+# with open(f"saved_models/{MODEL_TYPE}_{SEED}_{QUANTIZE_TO_8BIT}.tflite", "wb") as f:
+# f.write(quantized_tflite_model)
 
 
 def run_tflite_model(tflite_model):
@@ -226,7 +250,7 @@ print("TFLite test_accuracy:", tflite_model_accuracy)
 print()
 
 # Run test dataset on baseline, QAT, and TFLite models
-baseline_output = model.predict(test_images)
+baseline_output = baseline_model.predict(test_images)
 qat_output = qat_model.predict(test_images)
 tflite_output = run_tflite_model(quantized_tflite_model)
 
