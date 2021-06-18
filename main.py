@@ -96,10 +96,16 @@ baseline_model.fit(
 # The sections after will create a quantized model from the quantization aware one,
 # using the TFLiteConverter
 
-quantize_model = tfmot.quantization.keras.quantize_model
+# MonkeyPatch to use AllValuesQuantizer instead of moving average
+# to match behaviour of TFLite representative dataset quantization
+# (it weights all items in the representative dataset equally,
+# it doesn't do a moving average)
+default_8bit_quantize_registry.quantizers.MovingAverageQuantizer = (
+    tfmot.quantization.keras.quantizers.AllValuesQuantizer
+)
 
 # quantization aware model
-qat_model = quantize_model(baseline_model)
+qat_model = tfmot.quantization.keras.quantize_model(baseline_model)
 
 # `quantize_model` requires a recompile.
 qat_model.compile(
@@ -129,14 +135,6 @@ qat_model.fit(
 # qat_model = keras.models.load_model(
 #     f"saved_models/{MODEL_TYPE}_{SEED}_{QUANTIZE_TO_8BIT}_qat"
 # )
-
-# MonkeyPatch to use AllValuesQuantizer instead of moving average
-# to match behaviour of TFLite representative dataset quantization
-# (it weights all items in the representative dataset equally,
-# it doesn't do a moving average)
-default_8bit_quantize_registry.quantizers.MovingAverageQuantizer = (
-    tfmot.quantization.keras.quantizers.AllValuesQuantizer,
-)
 
 # calibrate QAT model, after the monkey patch
 qat_model(train_images, training=True)
