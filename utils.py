@@ -24,7 +24,6 @@ def output_stats(
     model: str,
     tol: float,
     seed: int,
-    use_csv=False,
 ):
     """Output summary statistics"""
     assert x.shape == y.shape
@@ -51,8 +50,6 @@ def output_stats(
     print(f"Outputs not close: {num_mismatch/x.shape[0]*100}% of {x.shape[0]}")
     print()
 
-    if not use_csv:
-        return
     filename = "summary.csv"
     my_file = Path(filename)
     if not my_file.exists():
