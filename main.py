@@ -145,24 +145,7 @@ elif EVAL_PATCHED_QAT:
     # Create quantized model for TFLite
     # After this, we will have an actually quantized model with int8 weights and uint8 activations.
 
-    def representative_dataset():
-        # Use the same inputs as what QAT model saw for calibration
-        for data in (
-            tf.data.Dataset.from_tensor_slices(train_images)
-            .batch(1)
-            .take(-1)  # Use all of dataset
-        ):
-            yield [tf.dtypes.cast(data, tf.float32)]
-
-    # TF's QAT example uses Dynamic range quantization
-    converter = tf.lite.TFLiteConverter.from_keras_model(qat_model2)
-    converter.optimizations = [tf.lite.Optimize.DEFAULT]
-    # For all INT8 conversion, we need some additional converter settings:
-    converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
-    converter.inference_input_type = tf.int8  # or tf.uint8 for Coral
-    converter.inference_output_type = tf.int8  # or tf.uint8 for Coral
-    converter.representative_dataset = representative_dataset
-    quantized_tflite_model = converter.convert()
+    quantized_tflite_model = tflite_runner.create_tflite_model(train_images, qat_model2)
 
     # Evaluate and see if accuracy from TensorFlow persists to TFLite.
     tflite_model_accuracy = tflite_runner.evaluate_tflite_model(

@@ -79,26 +79,8 @@ for regular_layer, custom_layer in zip(base_model.layers, custom_model.layers):
 _, base_model_accuracy = base_model.evaluate(test_images, test_labels, verbose=0)
 _, custom_model_accuracy = custom_model.evaluate(test_images, test_labels, verbose=0)
 
+quantized_tflite_model = tflite_runner.create_tflite_model(train_images, base_model)
 
-# Create quantized model for TFLite
-def representative_dataset():
-    for data in (
-        tf.data.Dataset.from_tensor_slices(train_images)
-        .batch(1)
-        .take(-1)  # Use all of dataset
-    ):
-        yield [tf.dtypes.cast(data, tf.float32)]
-
-
-# TF's QAT example uses Dynamic range quantization
-converter = tf.lite.TFLiteConverter.from_keras_model(base_model)
-converter.optimizations = [tf.lite.Optimize.DEFAULT]
-# For all INT8 conversion, we need some additional converter settings:
-converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
-converter.inference_input_type = tf.int8  # or tf.uint8 for Coral
-converter.inference_output_type = tf.int8  # or tf.uint8 for Coral
-converter.representative_dataset = representative_dataset
-quantized_tflite_model = converter.convert()
 # Evaluate and see if accuracy from TensorFlow persists to TFLite.
 tflite_model_accuracy = tflite_runner.evaluate_tflite_model(
     quantized_tflite_model, test_images, test_labels
@@ -110,11 +92,18 @@ print("Custom test accuracy:", custom_model_accuracy)
 print("TFLite test_accuracy:", tflite_model_accuracy)
 
 # Run test dataset on custom, and TFLite models
+base_output: np.ndarray = base_model.predict(test_images)
+base_output = base_output.flatten()
 custom_output: np.ndarray = custom_model.predict(test_images)
 custom_output = custom_output.flatten()
 tflite_output = tflite_runner.run_tflite_model(quantized_tflite_model, test_images)
 tflite_output = tflite_output.flatten()
 
+# Check that Custom model is closer to tflite, than base model
+# Also compare the custom fake quant model to tflite model
+# TODO also compare to QATmodel?
+utils.output_stats(base_output, tflite_output, "Base vs TFLite", "Dense", 1e-2, SEED)
+
 utils.output_stats(
-    custom_output, tflite_output, "Custom vs TFLite", "Dense", 1e-4, SEED
+    custom_output, tflite_output, "Custom vs TFLite", "Dense", 1e-2, SEED
 )

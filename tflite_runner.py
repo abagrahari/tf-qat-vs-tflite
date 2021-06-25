@@ -2,6 +2,27 @@ import numpy as np
 import tensorflow as tf
 
 
+def create_tflite_model(train_images, keras_model):
+    def representative_dataset():
+        # Use the same inputs as what QAT model saw for calibration
+        for data in (
+            tf.data.Dataset.from_tensor_slices(train_images)
+            .batch(1)
+            .take(-1)  # Use all of dataset
+        ):
+            yield [tf.dtypes.cast(data, tf.float32)]
+
+    # TF's QAT example uses Dynamic range quantization
+    converter = tf.lite.TFLiteConverter.from_keras_model(keras_model)
+    converter.optimizations = [tf.lite.Optimize.DEFAULT]
+    # For all INT8 conversion, we need some additional converter settings:
+    converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
+    converter.inference_input_type = tf.int8  # or tf.uint8 for Coral
+    converter.inference_output_type = tf.int8  # or tf.uint8 for Coral
+    converter.representative_dataset = representative_dataset
+    return converter.convert()
+
+
 def run_tflite_model(tflite_model, images_dataset):
     interpreter = tf.lite.Interpreter(model_content=tflite_model)
     interpreter.allocate_tensors()
