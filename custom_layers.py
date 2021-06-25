@@ -113,10 +113,19 @@ class DenseFakeQuant(Dense):
         super().__init__(units, activation, **kwargs)
 
     def quant_and_dequant(self, x: tf.Tensor, bits=8) -> tf.Tensor:
-        unused_val = 0
-        return tf.quantization.quantize_and_dequantize_v2(
-            x, unused_val, unused_val, num_bits=bits, range_given=False
-        )
+        # unused_val = 0
+        # return tf.quantization.quantize_and_dequantize_v2(
+        #     x, unused_val, unused_val, num_bits=bits, range_given=False
+        # )
+
+        # Find min/max of inputs
+        batch_min = tf.math.reduce_min(x, name="BatchMin")
+        batch_max = tf.math.reduce_max(x, name="BatchMax")
+        # FakeQuantWithMinMaxVars requires that 0.0 is always in the [min; max] range.
+        range_min = tf.math.minimum(batch_min, 0.0)
+        range_max = tf.math.maximum(0.0, batch_max)
+
+        return tf.quantization.fake_quant_with_min_max_vars(x, range_min, range_max)
 
     def call(self, inputs: tf.Tensor):
         assert inputs.shape.rank in (2, None)
