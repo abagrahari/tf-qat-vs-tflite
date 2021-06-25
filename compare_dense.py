@@ -32,6 +32,7 @@ base_model = keras.Sequential(
         keras.layers.Dense(10),
         keras.layers.Dense(10),
         keras.layers.Dense(10),
+        keras.layers.Dense(10),
     ]
 )
 base_model.compile(
@@ -58,6 +59,7 @@ custom_model = keras.Sequential(
         custom_layers.DenseFakeQuant(10),
         custom_layers.DenseFakeQuant(10),
         custom_layers.DenseFakeQuant(10),
+        custom_layers.DenseFakeQuant(10),
     ]
 )
 custom_model.compile(
@@ -77,11 +79,14 @@ for regular_layer, custom_layer in zip(base_model.layers, custom_model.layers):
 _, base_model_accuracy = base_model.evaluate(test_images, test_labels, verbose=0)
 _, custom_model_accuracy = custom_model.evaluate(test_images, test_labels, verbose=0)
 
-quantized_tflite_model = tflite_runner.create_tflite_model(train_images, base_model)
+tflite_model = tflite_runner.create_tflite_model(train_images, base_model)
+
+with open("saved_models/base_model_dense4.tflite", "wb") as f:
+    f.write(tflite_model)
 
 # Evaluate and see if accuracy from TensorFlow persists to TFLite.
 tflite_model_accuracy = tflite_runner.evaluate_tflite_model(
-    quantized_tflite_model, test_images, test_labels
+    tflite_model, test_images, test_labels
 )
 
 print()
@@ -94,7 +99,7 @@ base_output: np.ndarray = base_model.predict(test_images)
 base_output = base_output.flatten()
 custom_output: np.ndarray = custom_model.predict(test_images)
 custom_output = custom_output.flatten()
-tflite_output = tflite_runner.run_tflite_model(quantized_tflite_model, test_images)
+tflite_output = tflite_runner.run_tflite_model(tflite_model, test_images)
 tflite_output = tflite_output.flatten()
 
 # Check that Custom model is closer to tflite, than base model
