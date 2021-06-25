@@ -80,11 +80,10 @@ class Dense(keras.layers.Layer):
 
         if self.activation is not None:
             y = self.activation(y)
-
         return y
 
 
-class DenseFakeQuant(keras.layers.Layer):
+class DenseFakeQuant(Dense):
     """Densely-connected NN layer, with Fake Quantization.
 
     Implements the operation:
@@ -111,41 +110,7 @@ class DenseFakeQuant(keras.layers.Layer):
         activation=None,
         **kwargs,
     ):
-
-        super().__init__(**kwargs)
-
-        self.units = units
-        self.activation = activations.get(activation)
-        self.input_spec = InputSpec(min_ndim=2)
-
-    def build(self, input_shape):
-        # Lazily create and init weights and biases, since shape of input tensor is now known
-        # inputs.shape is (batchsize, features)
-        # kernel.shape is (features, units)
-        # bias.shape is (units)
-        assert input_shape[-1] is not None
-
-        self.input_spec = InputSpec(min_ndim=2, axes={-1: input_shape[-1]})
-
-        # weight matrix
-        self.kernel = self.add_weight(
-            "kernel",  # need to specify name to be able to save/load models
-            shape=[input_shape[-1], self.units],
-            initializer=initializers.get("glorot_uniform"),
-            dtype=self.dtype,
-            trainable=True,
-        )
-        # bias vector
-        self.bias = self.add_weight(
-            "bias",
-            shape=[
-                self.units,
-            ],
-            initializer=initializers.get("zeros"),  # for bias vector
-            dtype=self.dtype,
-            trainable=True,
-            # vector of size (units,)
-        )
+        super().__init__(units, activation, **kwargs)
 
     def quant_and_dequant(self, x: tf.Tensor, bits=8) -> tf.Tensor:
         unused_val = 0
@@ -153,17 +118,13 @@ class DenseFakeQuant(keras.layers.Layer):
             x, unused_val, unused_val, num_bits=bits, range_given=False
         )
 
-    def call(self, inputs):
-        # Perform layer's computation, in the forward pass.
-        # Back prop is automatically handled by tf
-        # Can only use tensorflow functions here
-
+    def call(self, inputs: tf.Tensor):
         assert inputs.shape.rank in (2, None)
 
-        # FakeQuant inputs.
+        # FakeQuant inputs, kernel, and bias
         fq_inputs = self.quant_and_dequant(inputs)
-        # FakeQuant kernel and bias
         fq_kernel = self.quant_and_dequant(self.kernel)
+        # fq bias to 32 bits as tflite does
         fq_bias = self.quant_and_dequant(self.bias, 32)
 
         # Use regular matmul

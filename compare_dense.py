@@ -28,8 +28,7 @@ tf.random.set_seed(SEED)
 
 base_model = keras.Sequential(
     [
-        keras.layers.InputLayer(input_shape=(28, 28)),
-        keras.layers.Flatten(),
+        keras.layers.Flatten(input_shape=(28, 28)),
         keras.layers.Dense(10),
         keras.layers.Dense(10),
         keras.layers.Dense(10),
@@ -55,8 +54,7 @@ else:
 # Setup the custom dense layer model
 custom_model = keras.Sequential(
     [
-        keras.layers.InputLayer(input_shape=(28, 28)),
-        keras.layers.Flatten(),
+        keras.layers.Flatten(input_shape=(28, 28)),
         custom_layers.DenseFakeQuant(10),
         custom_layers.DenseFakeQuant(10),
         custom_layers.DenseFakeQuant(10),
@@ -101,9 +99,8 @@ tflite_output = tflite_output.flatten()
 
 # Check that Custom model is closer to tflite, than base model
 # Also compare the custom fake quant model to tflite model
-# TODO also compare to QATmodel?
+# TODO eventually also check that custom model is closer to tflite than QAT model
 utils.output_stats(base_output, tflite_output, "Base vs TFLite", "Dense", 1e-2, SEED)
-
 utils.output_stats(
     custom_output, tflite_output, "Custom vs TFLite", "Dense", 1e-2, SEED
 )
