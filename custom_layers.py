@@ -1,8 +1,10 @@
+import functools
+import operator
+
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.python.keras import activations
 from tensorflow.python.keras import initializers
-from tensorflow.python.keras.engine.input_spec import InputSpec
 
 
 class Dense(keras.layers.Layer):
@@ -37,7 +39,6 @@ class Dense(keras.layers.Layer):
 
         self.units = units
         self.activation = activations.get(activation)
-        self.input_spec = InputSpec(min_ndim=2)
 
     def build(self, input_shape):
         # Lazily create and init weights and biases, since shape of input tensor is now known
@@ -45,8 +46,6 @@ class Dense(keras.layers.Layer):
         # kernel.shape is (features, units)
         # bias.shape is (units)
         assert input_shape[-1] is not None
-
-        self.input_spec = InputSpec(min_ndim=2, axes={-1: input_shape[-1]})
 
         # weight matrix
         self.kernel = self.add_weight(
@@ -148,3 +147,64 @@ class DenseFakeQuant(Dense):
             y = self.activation(y)
         y = self.quant_and_dequant(y)
         return y
+
+
+class FlattenTFLite(keras.layers.Layer):
+    """Flattens the input.
+
+    Needed for adding input quantization params from tflite
+    """
+
+    def __init__(self, data_format=None, **kwargs):
+        super().__init__(**kwargs)
+        # Hardcoded param from tflite for now
+        self.scale = 0.003921568859368563
+        self.zero_point = -128
+
+    def call(self, inputs):
+        # Borrowed from TF's implementation
+        input_shape = inputs.shape
+        non_batch_dims = input_shape[1:]
+        assert non_batch_dims.is_fully_defined()
+        last_dim = int(functools.reduce(operator.mul, non_batch_dims))  # 28x28=784
+        flattened_shape = tf.constant([-1, last_dim])
+        y = tf.reshape(inputs, flattened_shape)
+        # quantize (and dequantize?) y using self.scale and self.zero_point
+        tf.print(y, summarize=-1)
+        int8_val = tf.math.add(tf.math.divide(y, self.scale), self.zero_point)
+        int8_val = tf.round(int8_val)
+        int8_val = tf.cast(int8_val, tf.int8)
+        y = tf.math.scalar_mul(
+            self.scale, tf.math.subtract(tf.cast(int8_val, tf.float32), self.zero_point)
+        )
+        return y
+
+
+class DenseTFLite(Dense):
+    """Densely-connected NN layer, with Quantization using params from tflite.
+
+    Implements the operation:
+    `output = activation(dot(input, kernel) + bias)`
+    where `activation` is the element-wise activation function
+    passed as the `activation` argument, `kernel` is a weights matrix
+    created by the layer, and `bias` is a bias vector created by the layer.
+
+    Args:
+      units: Positive integer, dimensionality of the output space.
+      activation: Activation function to use.
+        If you don't specify anything, no activation is applied
+        (ie. "linear" activation: `a(x) = x`).
+
+    Input shape:
+      2D tensor with shape `(batch_size, input_dim)`,
+    Output shape:
+      2D tensor with shape: `(batch_size, units)`.
+    """
+
+    def __init__(
+        self,
+        units: int,
+        activation=None,
+        **kwargs,
+    ):
+        super().__init__(units, activation, **kwargs)

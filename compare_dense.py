@@ -55,11 +55,11 @@ else:
 # Setup the custom dense layer model
 custom_model = keras.Sequential(
     [
-        keras.layers.Flatten(input_shape=(28, 28)),
-        custom_layers.DenseFakeQuant(10),
-        custom_layers.DenseFakeQuant(10),
-        custom_layers.DenseFakeQuant(10),
-        custom_layers.DenseFakeQuant(10),
+        custom_layers.FlattenTFLite(input_shape=(28, 28)),
+        custom_layers.DenseTFLite(10),
+        custom_layers.DenseTFLite(10),
+        custom_layers.DenseTFLite(10),
+        custom_layers.DenseTFLite(10),
     ]
 )
 custom_model.compile(
