@@ -227,26 +227,23 @@ class DenseTFLite(Dense):
         assert inputs.shape.rank in (2, None)
 
         # quantize using scale and zero_point
-        int8_val = (inputs / self.input_scale) + self.input_zero_point
-        inputs = tf.cast(tf.round(int8_val), tf.int8)
-
-        int8_val = (self.kernel / self.kernel_scale) + self.kernel_zero_point
-        kernel = tf.cast(tf.round(int8_val), tf.int8)
-
-        int8_val = (self.bias / self.bias_scale) + self.bias_zero_point
-        bias = tf.cast(tf.round(int8_val), tf.int32)
+        inputs = (inputs / self.input_scale) + self.input_zero_point
+        inputs = tf.cast(tf.round(inputs), tf.int8)
+        kernel = (self.kernel / self.kernel_scale) + self.kernel_zero_point
+        kernel = tf.cast(tf.round(kernel), tf.int8)
+        bias = (self.bias / self.bias_scale) + self.bias_zero_point
+        bias = tf.cast(tf.round(bias), tf.int32)
 
         # Use regular matmul and addition
         y: tf.Tensor = tf.matmul(
             tf.cast(inputs, tf.float32), tf.cast(kernel, tf.float32)
         )
         y = tf.nn.bias_add(y, tf.cast(bias, tf.float32))
-
         # Outputs will have float32 type, but will be whole numbers like int32 etc
-
         if self.activation is not None:
             y = self.activation(y)
 
+        # Dequantize outputs
         y = (y - self.output_zero_point) * self.output_scale
 
         return y

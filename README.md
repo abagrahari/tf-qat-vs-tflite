@@ -22,6 +22,10 @@ or to iterate through the options
 ./run.sh
 ```
 
+```
+python compare_dense.py
+```
+
 ## TF's Documentation on running a model with tflite
 - Running a tflite model
     - https://www.tensorflow.org/lite/guide/inference#load_and_run_a_model_in_python

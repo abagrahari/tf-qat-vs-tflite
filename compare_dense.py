@@ -49,21 +49,28 @@ else:
         saved_weights_path
     ).assert_existing_objects_matched().expect_partial()
 
+
+tflite_model = tflite_runner.create_tflite_model(
+    train_images, base_model, "saved_models/base_model_dense4.tflite"
+)
+
 # Setup the custom dense layer model
 # with hardcoded param from tflite
+tensor_details = tflite_runner.get_interpreter(tflite_model).get_tensor_details()
+
 custom_model = keras.Sequential(
     [
         custom_layers.FlattenTFLite(0.003921568859368563, -128, input_shape=(28, 28)),
         custom_layers.DenseTFLite(
             10,
-            input_scale=0.003921568859368563,
-            input_zero_point=-128,
-            kernel_scale=0.0031214801128953695,
-            kernel_zero_point=0,
-            bias_scale=1.224109928443795e-05,
-            bias_zero_point=0,
-            output_scale=0.09318777918815613,
-            output_zero_point=-4,
+            input_scale=tensor_details[10]["quantization"][0],
+            input_zero_point=tensor_details[10]["quantization"][1],
+            kernel_scale=tensor_details[2]["quantization"][0],
+            kernel_zero_point=tensor_details[2]["quantization"][1],
+            bias_scale=tensor_details[3]["quantization"][0],
+            bias_zero_point=tensor_details[3]["quantization"][1],
+            output_scale=tensor_details[11]["quantization"][0],
+            output_zero_point=tensor_details[11]["quantization"][1],
         ),
         custom_layers.Dense(10),
         custom_layers.Dense(10),
@@ -87,10 +94,6 @@ for regular_layer, custom_layer in zip(base_model.layers, custom_model.layers):
 _, base_model_accuracy = base_model.evaluate(test_images, test_labels, verbose=0)
 _, custom_model_accuracy = custom_model.evaluate(test_images, test_labels, verbose=0)
 
-tflite_model = tflite_runner.create_tflite_model(train_images, base_model)
-
-with open("saved_models/base_model_dense4.tflite", "wb") as f:
-    f.write(tflite_model)
 
 # Evaluate and see if accuracy from TensorFlow persists to TFLite.
 tflite_model_accuracy = tflite_runner.evaluate_tflite_model(

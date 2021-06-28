@@ -1,8 +1,14 @@
 import numpy as np
 import tensorflow as tf
+from pathlib import Path
 
 
-def create_tflite_model(train_images, keras_model):
+def create_tflite_model(train_images, keras_model, model_path):
+    if Path(model_path).exists():
+        with open(model_path, "rb") as f:
+            tflite_model = f.read()
+        return tflite_model
+
     def representative_dataset():
         # Use the same inputs as what QAT model saw for calibration
         for data in (
@@ -20,7 +26,18 @@ def create_tflite_model(train_images, keras_model):
     converter.inference_input_type = tf.int8  # or tf.uint8 for Coral
     converter.inference_output_type = tf.int8  # or tf.uint8 for Coral
     converter.representative_dataset = representative_dataset
-    return converter.convert()
+    tflite_model = converter.convert()
+    with open(model_path, "wb") as f:
+        f.write(tflite_model)
+    return tflite_model
+
+
+def get_interpreter(tflite_model):
+    interpreter = tf.lite.Interpreter(model_content=tflite_model)
+    interpreter.allocate_tensors()
+    """Helper function to setup the tflite interpreter using the TF Lite model."""
+    # https://www.tensorflow.org/lite/guide/inference#load_and_run_a_model_in_python
+    return interpreter
 
 
 def run_tflite_model(tflite_model, images_dataset):
