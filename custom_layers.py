@@ -155,28 +155,25 @@ class FlattenTFLite(keras.layers.Layer):
     Needed for adding input quantization params from tflite
     """
 
-    def __init__(self, data_format=None, **kwargs):
+    def __init__(self, **kwargs):
         super().__init__(**kwargs)
         # Hardcoded param from tflite for now
         self.scale = 0.003921568859368563
         self.zero_point = -128
 
     def call(self, inputs):
-        # Borrowed from TF's implementation
+        # Logic to flatten inputs was borrowed from TF's implementation
         input_shape = inputs.shape
         non_batch_dims = input_shape[1:]
         assert non_batch_dims.is_fully_defined()
         last_dim = int(functools.reduce(operator.mul, non_batch_dims))  # 28x28=784
         flattened_shape = tf.constant([-1, last_dim])
         y = tf.reshape(inputs, flattened_shape)
-        # quantize (and dequantize?) y using self.scale and self.zero_point
-        tf.print(y, summarize=-1)
-        int8_val = tf.math.add(tf.math.divide(y, self.scale), self.zero_point)
-        int8_val = tf.round(int8_val)
-        int8_val = tf.cast(int8_val, tf.int8)
-        y = tf.math.scalar_mul(
-            self.scale, tf.math.subtract(tf.cast(int8_val, tf.float32), self.zero_point)
-        )
+
+        # quantize and dequantize y using self.scale and self.zero_point
+        int8_val = (y / self.scale) + self.zero_point
+        int8_val = tf.cast(tf.round(int8_val), tf.int8)
+        y = (tf.cast(int8_val, tf.float32) - self.zero_point) * self.scale
         return y
 
 

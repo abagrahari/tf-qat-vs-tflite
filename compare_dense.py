@@ -105,6 +105,7 @@ tflite_output = tflite_output.flatten()
 # Check that Custom model is closer to tflite, than base model
 # Also compare the custom fake quant model to tflite model
 # TODO eventually also check that custom model is closer to tflite than QAT model
+utils.output_stats(base_output, custom_output, "Base vs Custom", "Dense", 1e-2, SEED)
 utils.output_stats(base_output, tflite_output, "Base vs TFLite", "Dense", 1e-2, SEED)
 utils.output_stats(
     custom_output, tflite_output, "Custom vs TFLite", "Dense", 1e-2, SEED

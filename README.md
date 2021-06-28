@@ -33,3 +33,7 @@ or to iterate through the options
 
 ## Saving weights of a model
 - https://www.tensorflow.org/guide/keras/save_and_serialize#apis_for_saving_weights_to_disk_loading_them_back
+
+## Recreating a tflite model in tensorflow
+- TFLite quantizes values in [this way](https://www.tensorflow.org/lite/performance/quantization_spec#specification_summary):
+    - `real_value = (int8_value - zero_point) * scale`
