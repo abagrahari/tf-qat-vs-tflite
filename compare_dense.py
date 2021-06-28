@@ -2,9 +2,6 @@
 
 import os
 from pathlib import Path
-from numpy.lib.npyio import save
-
-from tensorflow.python.training.tracking import base
 
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 
@@ -53,13 +50,24 @@ else:
     ).assert_existing_objects_matched().expect_partial()
 
 # Setup the custom dense layer model
+# with hardcoded param from tflite
 custom_model = keras.Sequential(
     [
-        custom_layers.FlattenTFLite(input_shape=(28, 28)),
-        custom_layers.DenseTFLite(10),
-        custom_layers.DenseTFLite(10),
-        custom_layers.DenseTFLite(10),
-        custom_layers.DenseTFLite(10),
+        custom_layers.FlattenTFLite(0.003921568859368563, -128, input_shape=(28, 28)),
+        custom_layers.DenseTFLite(
+            10,
+            input_scale=0.003921568859368563,
+            input_zero_point=-128,
+            kernel_scale=0.0031214801128953695,
+            kernel_zero_point=0,
+            bias_scale=1.224109928443795e-05,
+            bias_zero_point=0,
+            output_scale=0.09318777918815613,
+            output_zero_point=-4,
+        ),
+        custom_layers.Dense(10),
+        custom_layers.Dense(10),
+        custom_layers.Dense(10),
     ]
 )
 custom_model.compile(

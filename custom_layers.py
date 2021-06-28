@@ -155,13 +155,13 @@ class FlattenTFLite(keras.layers.Layer):
     Needed for adding input quantization params from tflite
     """
 
-    def __init__(self, **kwargs):
+    def __init__(self, scale, zero_point, **kwargs):
         super().__init__(**kwargs)
         # Hardcoded param from tflite for now
-        self.scale = 0.003921568859368563
-        self.zero_point = -128
+        self.scale = scale
+        self.zero_point = zero_point
 
-    def call(self, inputs):
+    def call(self, inputs: tf.Tensor):
         # Logic to flatten inputs was borrowed from TF's implementation
         input_shape = inputs.shape
         non_batch_dims = input_shape[1:]
@@ -202,6 +202,51 @@ class DenseTFLite(Dense):
         self,
         units: int,
         activation=None,
+        input_scale=1,
+        input_zero_point=0,
+        kernel_scale=1,
+        kernel_zero_point=0,
+        bias_scale=1,
+        bias_zero_point=0,
+        output_scale=1,
+        output_zero_point=0,
         **kwargs,
     ):
         super().__init__(units, activation, **kwargs)
+
+        self.input_scale = input_scale
+        self.input_zero_point = input_zero_point
+        self.kernel_scale = kernel_scale
+        self.kernel_zero_point = kernel_zero_point
+        self.bias_scale = bias_scale
+        self.bias_zero_point = bias_zero_point
+        self.output_scale = output_scale
+        self.output_zero_point = output_zero_point
+
+    def call(self, inputs: tf.Tensor):
+        assert inputs.shape.rank in (2, None)
+
+        # quantize using scale and zero_point
+        int8_val = (inputs / self.input_scale) + self.input_zero_point
+        inputs = tf.cast(tf.round(int8_val), tf.int8)
+
+        int8_val = (self.kernel / self.kernel_scale) + self.kernel_zero_point
+        kernel = tf.cast(tf.round(int8_val), tf.int8)
+
+        int8_val = (self.bias / self.bias_scale) + self.bias_zero_point
+        bias = tf.cast(tf.round(int8_val), tf.int32)
+
+        # Use regular matmul and addition
+        y: tf.Tensor = tf.matmul(
+            tf.cast(inputs, tf.float32), tf.cast(kernel, tf.float32)
+        )
+        y = tf.nn.bias_add(y, tf.cast(bias, tf.float32))
+
+        # Outputs will have float32 type, but will be whole numbers like int32 etc
+
+        if self.activation is not None:
+            y = self.activation(y)
+
+        y = (y - self.output_zero_point) * self.output_scale
+
+        return y
