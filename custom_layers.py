@@ -1,6 +1,7 @@
 import functools
 import operator
 
+import numpy as np
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.python.keras import activations, initializers
@@ -151,7 +152,10 @@ class DenseFakeQuant(Dense):
 def quant_from_tflite_params(
     x_fp32: tf.Tensor, scale: float, zero_point: int, dtype=tf.int8
 ) -> tf.Tensor:
-    """Quantize a tensor, given parameters from the quantized TFLite model"""
+    """Quantize a tensor, given parameters from the quantized TFLite model
+
+    From fp32 to dtype
+    """
     # From viewing the values of the bias of first layer in netron, we know that
     # the tf.round() op is needed. (e.g. 318.xx.. rounds to -> 319 rather than 318)
     return tf.cast(tf.round(x_fp32 / scale), dtype) + zero_point
@@ -160,7 +164,10 @@ def quant_from_tflite_params(
 def dequant_from_tflite_params(
     x_int8: tf.Tensor, scale: float, zero_point: int
 ) -> tf.Tensor:
-    """Dequantize a tensor, given parameters from the quantized TFLite model"""
+    """Dequantize a tensor, given parameters from the quantized TFLite model
+
+    From int8 to fp32
+    """
     # For dequantization: cast first, then subtract zero_point after, to avoid int overflow
     return (tf.cast(x_int8, tf.float32) - zero_point) * scale
 
@@ -239,37 +246,58 @@ class DenseTFLite(Dense):
         self.bias_zp = bias_zp
         self.output_scale = output_scale
         self.output_zp = output_zp
+        self.mode = "gary"  # For debugging: either "dequant_before", "mine", or "gary"
 
     def call(self, inputs: tf.Tensor):
 
         # quantize using scale and zero_point
-        inputs_mod = quant_from_tflite_params(
+        quant_input = quant_from_tflite_params(
             inputs, self.input_scale, self.input_zp, tf.int8
         )
-        kernel = quant_from_tflite_params(
+        quant_kernel = quant_from_tflite_params(
             self.kernel, self.kernel_scale, self.kernel_zp, tf.int8
         )
-        bias = quant_from_tflite_params(
+        quant_bias = quant_from_tflite_params(
             self.bias, self.bias_scale, self.bias_zp, tf.int32
         )
+        if self.mode == "dequant_before":
+            # Dequantize - only used for debugging
+            dequant_input = dequant_from_tflite_params(
+                quant_input, self.input_scale, self.input_zp
+            )
+            dequant_kernel = dequant_from_tflite_params(
+                quant_kernel, self.kernel_scale, self.kernel_zp
+            )
+            dequant_bias = dequant_from_tflite_params(
+                quant_bias, self.bias_scale, self.bias_zp
+            )
+            # Use regular matmul and addition
+            y: tf.Tensor = tf.matmul(dequant_input, dequant_kernel)
+            y = tf.nn.bias_add(y, dequant_bias)
+            return y
 
-        # Dequantize - for testing. TODO: remove this section once accuracy fixes
-        inputs_mod = dequant_from_tflite_params(
-            inputs_mod, self.input_scale, self.input_zp
-        )
-        kernel = dequant_from_tflite_params(kernel, self.kernel_scale, self.kernel_zp)
-        bias = dequant_from_tflite_params(bias, self.bias_scale, self.bias_zp)
+        if self.mode == "gary":
+            # Formula per Gary's method - essentially just: dequant(inputs_int) * dequant(kernel_int) + dequant(bias_int)
+            # i.e. exact same as dequantizing all the values above, before using them
+            # It also gives the exact same output
+            y = (
+                tf.matmul(
+                    tf.cast(quant_input, tf.float32) - self.input_zp,
+                    tf.cast(quant_kernel, tf.float32) - self.kernel_zp,
+                )
+                * self.input_scale
+                * self.kernel_scale
+            ) + dequant_from_tflite_params(quant_bias, self.bias_scale, self.bias_zp)
+            return y
 
-        # Use regular matmul and addition
-        y: tf.Tensor = tf.matmul(
-            tf.cast(inputs_mod, tf.float32), tf.cast(kernel, tf.float32)
-        )
-        y = tf.nn.bias_add(y, tf.cast(bias, tf.float32))
-        # Outputs will have float32 type, but values will be whole numbers
-        if self.activation is not None:
-            y = self.activation(y)
-
-        # Dequantize outputs
-        # y = (y - self.output_zero_point) * self.output_scale
-
-        return y
+        if self.mode == "mine":
+            # My attempt. This doesn't seem to work.
+            # Use regular matmul and addition
+            y: tf.Tensor = tf.matmul(
+                tf.cast(quant_input, tf.int32), tf.cast(quant_kernel, tf.int32)
+            )
+            y = tf.nn.bias_add(y, quant_bias)
+            # Outputs will have int32 type.
+            # Dequantize outputs
+            y = dequant_from_tflite_params(y, self.output_scale, self.output_zp)
+            return y
