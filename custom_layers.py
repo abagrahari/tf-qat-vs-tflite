@@ -224,15 +224,32 @@ class DenseTFLite(Dense):
         self.output_zero_point = output_zero_point
 
     def call(self, inputs: tf.Tensor):
-        assert inputs.shape.rank in (2, None)
 
         # quantize using scale and zero_point
-        inputs = (inputs / self.input_scale) + self.input_zero_point
-        inputs = tf.cast(tf.round(inputs), tf.int8)
-        kernel = (self.kernel / self.kernel_scale) + self.kernel_zero_point
-        kernel = tf.cast(tf.round(kernel), tf.int8)
-        bias = (self.bias / self.bias_scale) + self.bias_zero_point
-        bias = tf.cast(tf.round(bias), tf.int32)
+
+        # From viewing the values of the bias of first layer in netron, we know that
+        # the tf.round() op is needed. (318... -> 319)
+        inputs_mod = (
+            tf.cast(tf.round(inputs / self.input_scale), tf.int8)
+            + self.input_zero_point
+        )
+        kernel = (
+            tf.cast(tf.round(self.kernel / self.kernel_scale), tf.int8)
+            + self.kernel_zero_point
+        )
+        bias = (
+            tf.cast(tf.round(self.bias / self.bias_scale), tf.int32)
+            + self.bias_zero_point
+        )
+
+        # Dequantize - for testing. TODO: remove this section once accuracy fixes
+        inputs_mod = (
+            tf.cast((inputs_mod - self.input_zero_point), tf.float32) * self.input_scale
+        )
+        kernel = (
+            tf.cast((kernel - self.kernel_zero_point), tf.float32) * self.kernel_scale
+        )
+        bias = tf.cast((bias - self.bias_zero_point), tf.float32) * self.bias_scale
 
         # Use regular matmul and addition
         y: tf.Tensor = tf.matmul(
@@ -244,6 +261,6 @@ class DenseTFLite(Dense):
             y = self.activation(y)
 
         # Dequantize outputs
-        y = (y - self.output_zero_point) * self.output_scale
+        # y = (y - self.output_zero_point) * self.output_scale
 
         return y
