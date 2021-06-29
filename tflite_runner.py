@@ -1,6 +1,7 @@
+from pathlib import Path
+
 import numpy as np
 import tensorflow as tf
-from pathlib import Path
 
 
 def create_tflite_model(train_images, keras_model, model_path):

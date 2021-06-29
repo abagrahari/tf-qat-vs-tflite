@@ -3,8 +3,7 @@ import operator
 
 import tensorflow as tf
 from tensorflow import keras
-from tensorflow.python.keras import activations
-from tensorflow.python.keras import initializers
+from tensorflow.python.keras import activations, initializers
 
 
 class Dense(keras.layers.Layer):
@@ -221,54 +220,52 @@ class DenseTFLite(Dense):
         units: int,
         activation=None,
         input_scale=1,
-        input_zero_point=0,
+        input_zp=0,
         kernel_scale=1,
-        kernel_zero_point=0,
+        kernel_zp=0,
         bias_scale=1,
-        bias_zero_point=0,
+        bias_zp=0,
         output_scale=1,
-        output_zero_point=0,
+        output_zp=0,
         **kwargs,
     ):
         super().__init__(units, activation, **kwargs)
 
         self.input_scale = input_scale
-        self.input_zero_point = input_zero_point
+        self.input_zp = input_zp
         self.kernel_scale = kernel_scale
-        self.kernel_zero_point = kernel_zero_point
+        self.kernel_zp = kernel_zp
         self.bias_scale = bias_scale
-        self.bias_zero_point = bias_zero_point
+        self.bias_zp = bias_zp
         self.output_scale = output_scale
-        self.output_zero_point = output_zero_point
+        self.output_zp = output_zp
 
     def call(self, inputs: tf.Tensor):
 
         # quantize using scale and zero_point
         inputs_mod = quant_from_tflite_params(
-            inputs, self.input_scale, self.input_zero_point, tf.int8
+            inputs, self.input_scale, self.input_zp, tf.int8
         )
         kernel = quant_from_tflite_params(
-            self.kernel, self.kernel_scale, self.kernel_zero_point, tf.int8
+            self.kernel, self.kernel_scale, self.kernel_zp, tf.int8
         )
         bias = quant_from_tflite_params(
-            self.bias, self.bias_scale, self.bias_zero_point, tf.int32
+            self.bias, self.bias_scale, self.bias_zp, tf.int32
         )
 
         # Dequantize - for testing. TODO: remove this section once accuracy fixes
         inputs_mod = dequant_from_tflite_params(
-            inputs_mod, self.input_scale, self.input_zero_point
+            inputs_mod, self.input_scale, self.input_zp
         )
-        kernel = dequant_from_tflite_params(
-            kernel, self.kernel_scale, self.kernel_zero_point
-        )
-        bias = dequant_from_tflite_params(bias, self.bias_scale, self.bias_zero_point)
+        kernel = dequant_from_tflite_params(kernel, self.kernel_scale, self.kernel_zp)
+        bias = dequant_from_tflite_params(bias, self.bias_scale, self.bias_zp)
 
         # Use regular matmul and addition
         y: tf.Tensor = tf.matmul(
             tf.cast(inputs_mod, tf.float32), tf.cast(kernel, tf.float32)
         )
         y = tf.nn.bias_add(y, tf.cast(bias, tf.float32))
-        # Outputs will have float32 type, but will be whole numbers like int32 etc
+        # Outputs will have float32 type, but values will be whole numbers
         if self.activation is not None:
             y = self.activation(y)
 
