@@ -174,11 +174,8 @@ class FlattenTFLite(keras.layers.Layer):
 
         # quantize and dequantize y using self.scale and self.zero_point
         int8_val = tf.cast(tf.round(y / self.input_scale), tf.int8) + self.input_zp
+        # For dequantization: cast first, then subtract zero_point after, to avoid int overflow
         y = (tf.cast(int8_val, tf.float32) - self.output_zp) * self.output_scale
-        # WIP - using next line instead of above line
-        # causes drop in accuracy, even though next layer uses unquantized inputs
-        # y = tf.cast((int8_val - self.output_zp), tf.float32) * self.output_scale
-
         return y
 
 
