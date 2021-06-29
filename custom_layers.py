@@ -155,11 +155,13 @@ class FlattenTFLite(keras.layers.Layer):
     Needed for adding input quantization params from tflite
     """
 
-    def __init__(self, scale, zero_point, **kwargs):
+    def __init__(self, input_scale, input_zp, output_scale, output_zp, **kwargs):
         super().__init__(**kwargs)
-        # Hardcoded param from tflite for now
-        self.scale = scale
-        self.zero_point = zero_point
+        self.input_scale = input_scale
+        self.input_zp = input_zp
+        self.output_scale = output_scale
+        self.output_zp = output_zp
+        # input params will be same as output params (most likely)
 
     def call(self, inputs: tf.Tensor):
         # Logic to flatten inputs was borrowed from TF's implementation
@@ -171,9 +173,12 @@ class FlattenTFLite(keras.layers.Layer):
         y = tf.reshape(inputs, flattened_shape)
 
         # quantize and dequantize y using self.scale and self.zero_point
-        int8_val = (y / self.scale) + self.zero_point
-        int8_val = tf.cast(tf.round(int8_val), tf.int8)
-        y = (tf.cast(int8_val, tf.float32) - self.zero_point) * self.scale
+        int8_val = tf.cast(tf.round(y / self.input_scale), tf.int8) + self.input_zp
+        y = (tf.cast(int8_val, tf.float32) - self.output_zp) * self.output_scale
+        # WIP - using next line instead of above line
+        # causes drop in accuracy, even though next layer uses unquantized inputs
+        # y = tf.cast((int8_val - self.output_zp), tf.float32) * self.output_scale
+
         return y
 
 
@@ -252,7 +257,7 @@ class DenseTFLite(Dense):
         bias = tf.cast((bias - self.bias_zero_point), tf.float32) * self.bias_scale
 
         # Use regular matmul and addition
-        y: tf.Tensor = tf.matmul(
+        y: tf.Tensor = tf.matmul(  # TODO: use inputs_mod here
             tf.cast(inputs, tf.float32), tf.cast(kernel, tf.float32)
         )
         y = tf.nn.bias_add(y, tf.cast(bias, tf.float32))

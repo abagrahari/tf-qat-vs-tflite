@@ -60,7 +60,13 @@ tensor_details = tflite_runner.get_interpreter(tflite_model).get_tensor_details(
 
 custom_model = keras.Sequential(
     [
-        custom_layers.FlattenTFLite(0.003921568859368563, -128, input_shape=(28, 28)),
+        custom_layers.FlattenTFLite(
+            input_scale=tensor_details[0]["quantization"][0],
+            input_zp=tensor_details[0]["quantization"][1],
+            output_scale=tensor_details[10]["quantization"][0],
+            output_zp=tensor_details[10]["quantization"][1],
+            input_shape=(28, 28),
+        ),
         custom_layers.DenseTFLite(
             10,
             input_scale=tensor_details[10]["quantization"][0],
