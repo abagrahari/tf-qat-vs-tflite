@@ -149,6 +149,23 @@ class DenseFakeQuant(Dense):
         return y
 
 
+def quant_from_tflite_params(
+    x_fp32: tf.Tensor, scale: float, zero_point: int, dtype=tf.int8
+) -> tf.Tensor:
+    """Quantize a tensor, given parameters from the quantized TFLite model"""
+    # From viewing the values of the bias of first layer in netron, we know that
+    # the tf.round() op is needed. (e.g. 318.xx.. rounds to -> 319 rather than 318)
+    return tf.cast(tf.round(x_fp32 / scale), dtype) + zero_point
+
+
+def dequant_from_tflite_params(
+    x_int8: tf.Tensor, scale: float, zero_point: int
+) -> tf.Tensor:
+    """Dequantize a tensor, given parameters from the quantized TFLite model"""
+    # For dequantization: cast first, then subtract zero_point after, to avoid int overflow
+    return (tf.cast(x_int8, tf.float32) - zero_point) * scale
+
+
 class FlattenTFLite(keras.layers.Layer):
     """Flattens the input.
 
@@ -173,9 +190,8 @@ class FlattenTFLite(keras.layers.Layer):
         y = tf.reshape(inputs, flattened_shape)
 
         # quantize and dequantize y using self.scale and self.zero_point
-        int8_val = tf.cast(tf.round(y / self.input_scale), tf.int8) + self.input_zp
-        # For dequantization: cast first, then subtract zero_point after, to avoid int overflow
-        y = (tf.cast(int8_val, tf.float32) - self.output_zp) * self.output_scale
+        y = quant_from_tflite_params(y, self.input_scale, self.input_zp, tf.int8)
+        y = dequant_from_tflite_params(y, self.input_scale, self.input_zp)
         return y
 
 
@@ -228,34 +244,28 @@ class DenseTFLite(Dense):
     def call(self, inputs: tf.Tensor):
 
         # quantize using scale and zero_point
-
-        # From viewing the values of the bias of first layer in netron, we know that
-        # the tf.round() op is needed. (318... -> 319)
-        inputs_mod = (
-            tf.cast(tf.round(inputs / self.input_scale), tf.int8)
-            + self.input_zero_point
+        inputs_mod = quant_from_tflite_params(
+            inputs, self.input_scale, self.input_zero_point, tf.int8
         )
-        kernel = (
-            tf.cast(tf.round(self.kernel / self.kernel_scale), tf.int8)
-            + self.kernel_zero_point
+        kernel = quant_from_tflite_params(
+            self.kernel, self.kernel_scale, self.kernel_zero_point, tf.int8
         )
-        bias = (
-            tf.cast(tf.round(self.bias / self.bias_scale), tf.int32)
-            + self.bias_zero_point
+        bias = quant_from_tflite_params(
+            self.bias, self.bias_scale, self.bias_zero_point, tf.int32
         )
 
         # Dequantize - for testing. TODO: remove this section once accuracy fixes
-        inputs_mod = (
-            tf.cast((inputs_mod - self.input_zero_point), tf.float32) * self.input_scale
+        inputs_mod = dequant_from_tflite_params(
+            inputs_mod, self.input_scale, self.input_zero_point
         )
-        kernel = (
-            tf.cast((kernel - self.kernel_zero_point), tf.float32) * self.kernel_scale
+        kernel = dequant_from_tflite_params(
+            kernel, self.kernel_scale, self.kernel_zero_point
         )
-        bias = tf.cast((bias - self.bias_zero_point), tf.float32) * self.bias_scale
+        bias = dequant_from_tflite_params(bias, self.bias_scale, self.bias_zero_point)
 
         # Use regular matmul and addition
-        y: tf.Tensor = tf.matmul(  # TODO: use inputs_mod here
-            tf.cast(inputs, tf.float32), tf.cast(kernel, tf.float32)
+        y: tf.Tensor = tf.matmul(
+            tf.cast(inputs_mod, tf.float32), tf.cast(kernel, tf.float32)
         )
         y = tf.nn.bias_add(y, tf.cast(bias, tf.float32))
         # Outputs will have float32 type, but will be whole numbers like int32 etc
