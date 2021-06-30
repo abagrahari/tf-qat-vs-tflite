@@ -122,6 +122,8 @@ elif EVAL_PATCHED_QAT:
     # to match behaviour of TFLite representative dataset quantization
     # (it weights all items in the representative dataset equally,
     # it doesn't do a moving average)
+    # We monkey patch only in eval mode and not training mode, since during training
+    # we want a MovingAverageQuantizer to remove effect of poor initial quantization values
     default_8bit_quantize_registry.quantizers.MovingAverageQuantizer = (
         tfmot.quantization.keras.quantizers.AllValuesQuantizer
     )
@@ -152,7 +154,6 @@ elif EVAL_PATCHED_QAT:
         quantized_tflite_model, test_images, test_labels
     )
 
-    print()
     print("QAT test accuracy:", qat_model_accuracy)
     print("TFLite test_accuracy:", tflite_model_accuracy)
 

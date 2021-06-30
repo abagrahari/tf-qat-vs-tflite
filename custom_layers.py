@@ -246,7 +246,7 @@ class DenseTFLite(Dense):
         self.bias_zp = bias_zp
         self.output_scale = output_scale
         self.output_zp = output_zp
-        self.mode = "gary"  # For debugging: either "dequant_before", "mine", or "gary"
+        self.mode = "dequant_before"  # For debugging: either "dequant_before", "wrong_domain", "gary", or "mine"
 
     def call(self, inputs: tf.Tensor):
 
@@ -276,9 +276,26 @@ class DenseTFLite(Dense):
             y = tf.nn.bias_add(y, dequant_bias)
             return y
 
+        if self.mode == "wrong_domain":
+            # This approach will not work, since it would be incorrectly converting between
+            # input and ouput quantization domains.
+            # quant_input and quant_kernel are not enough to know the quantization domains
+            # We must also account for scale_i, scale_kernel, zp_i, zp_kernel to
+            # convert between domains
+
+            # Use regular matmul and addition
+            y: tf.Tensor = tf.matmul(
+                tf.cast(quant_input, tf.int32), tf.cast(quant_kernel, tf.int32)
+            )
+            y = tf.nn.bias_add(y, quant_bias)
+            # Outputs will have int32 type.
+            # Dequantize outputs
+            y = dequant_from_tflite_params(y, self.output_scale, self.output_zp)
+            return y
+
         if self.mode == "gary":
             # Formula per Gary's method - essentially just: dequant(inputs_int) * dequant(kernel_int) + dequant(bias_int)
-            # i.e. exact same as dequantizing all the values above, before using them
+            # i.e. exact same as dequantizing all the values above, before using them (mode="dequant_before")
             # It also gives the exact same output
             y = (
                 tf.matmul(
@@ -288,16 +305,4 @@ class DenseTFLite(Dense):
                 * self.input_scale
                 * self.kernel_scale
             ) + dequant_from_tflite_params(quant_bias, self.bias_scale, self.bias_zp)
-            return y
-
-        if self.mode == "mine":
-            # My attempt. This doesn't seem to work.
-            # Use regular matmul and addition
-            y: tf.Tensor = tf.matmul(
-                tf.cast(quant_input, tf.int32), tf.cast(quant_kernel, tf.int32)
-            )
-            y = tf.nn.bias_add(y, quant_bias)
-            # Outputs will have int32 type.
-            # Dequantize outputs
-            y = dequant_from_tflite_params(y, self.output_scale, self.output_zp)
             return y

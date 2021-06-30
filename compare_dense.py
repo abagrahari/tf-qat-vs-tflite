@@ -132,24 +132,20 @@ for regular_layer, custom_layer in zip(base_model.layers, custom_model.layers):
 
 _, base_model_accuracy = base_model.evaluate(test_images, test_labels, verbose=0)
 _, custom_model_accuracy = custom_model.evaluate(test_images, test_labels, verbose=0)
-
-
-# Evaluate and see if accuracy from TensorFlow persists to TFLite.
 tflite_model_accuracy = tflite_runner.evaluate_tflite_model(
     tflite_model, test_images, test_labels
 )
 
-print()
 print("Base test accuracy:", base_model_accuracy)
 print("Custom test accuracy:", custom_model_accuracy)
 print("TFLite test_accuracy:", tflite_model_accuracy)
 
-# Run test dataset on custom, and TFLite models
+# Run test dataset on models
 base_output: np.ndarray = base_model.predict(test_images)
-base_output = base_output.flatten()
 custom_output: np.ndarray = custom_model.predict(test_images)
-custom_output = custom_output.flatten()
 tflite_output = tflite_runner.run_tflite_model(tflite_model, test_images)
+base_output = base_output.flatten()
+custom_output = custom_output.flatten()
 tflite_output = tflite_output.flatten()
 
 # Check that Custom model is closer to tflite, than base model
