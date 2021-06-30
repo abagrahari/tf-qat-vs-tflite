@@ -11,17 +11,19 @@ Using the skeleton from [TensorFlow's QAT Example](https://www.tensorflow.org/mo
 
 ## Running
 
+To compare the QAT model with the tflite model, we use a 2-step approach:
 ```bash
 python main.py --model dense4
 python main.py --model dense4 --eval
 ```
 
-or to iterate through the options
+or to iterate through the options (seeds, model types, etc.):
 
 ```bash
 ./run.sh
 ```
 
+To compare the custom dense layers with the tflite model:
 ```
 python compare_dense.py
 ```

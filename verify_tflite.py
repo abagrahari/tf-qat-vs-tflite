@@ -3,6 +3,10 @@
 # in order to gain an understanding of how quant works in tflite
 # The aim is to mimic keras' dense layer
 
+# TODO: this was left in an unfinished state, as it was no longer needed
+# The quantization/dequantization and output calculation steps / formula
+# may be incorrect.
+
 import os
 from pathlib import Path
 

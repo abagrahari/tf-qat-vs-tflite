@@ -176,6 +176,16 @@ class FlattenTFLite(keras.layers.Layer):
     """Flattens the input.
 
     Needed for adding input quantization params from tflite
+
+    Args:
+      input_scale: `scale` quantization parameter for the input
+      input_zp: `zero-point` quantization parameter for the input
+      kernel_scale: `scale` quantization parameter for the weights
+      kernel_zp: `zero-point` quantization parameter for the weights
+      bias_scale: `scale` quantization parameter for the bias
+      bias_zp: `zero-point` quantization parameter for the bias
+      output_scale: `scale` quantization parameter for the output
+      output_zp: `zero-point` quantization parameter for the output
     """
 
     def __init__(self, input_scale, input_zp, output_scale, output_zp, **kwargs):
@@ -215,6 +225,14 @@ class DenseTFLite(Dense):
       activation: Activation function to use.
         If you don't specify anything, no activation is applied
         (ie. "linear" activation: `a(x) = x`).
+      input_scale: `scale` quantization parameter for the input
+      input_zp: `zero-point` quantization parameter for the input
+      kernel_scale: `scale` quantization parameter for the weights
+      kernel_zp: `zero-point` quantization parameter for the weights
+      bias_scale: `scale` quantization parameter for the bias
+      bias_zp: `zero-point` quantization parameter for the bias
+      output_scale: `scale` quantization parameter for the output
+      output_zp: `zero-point` quantization parameter for the output
 
     Input shape:
       2D tensor with shape `(batch_size, input_dim)`,
@@ -246,10 +264,10 @@ class DenseTFLite(Dense):
         self.bias_zp = bias_zp
         self.output_scale = output_scale
         self.output_zp = output_zp
-        self.mode = "dequant_before"  # For debugging: either "dequant_before", "wrong_domain", "gary", or "mine"
+        self.MODE = "mine"  # For debugging
+        # self.mode is set to one of the below options as a constant
 
     def call(self, inputs: tf.Tensor):
-
         # quantize using scale and zero_point
         quant_input = quant_from_tflite_params(
             inputs, self.input_scale, self.input_zp, tf.int8
@@ -260,7 +278,8 @@ class DenseTFLite(Dense):
         quant_bias = quant_from_tflite_params(
             self.bias, self.bias_scale, self.bias_zp, tf.int32
         )
-        if self.mode == "dequant_before":
+
+        if self.MODE == "dequant_before":
             # Dequantize - only used for debugging
             dequant_input = dequant_from_tflite_params(
                 quant_input, self.input_scale, self.input_zp
@@ -276,7 +295,7 @@ class DenseTFLite(Dense):
             y = tf.nn.bias_add(y, dequant_bias)
             return y
 
-        if self.mode == "wrong_domain":
+        if self.MODE == "wrong_domain":
             # This approach will not work, since it would be incorrectly converting between
             # input and ouput quantization domains.
             # quant_input and quant_kernel are not enough to know the quantization domains
@@ -293,7 +312,7 @@ class DenseTFLite(Dense):
             y = dequant_from_tflite_params(y, self.output_scale, self.output_zp)
             return y
 
-        if self.mode == "gary":
+        if self.MODE == "gary":
             # Formula per Gary's method - essentially just: dequant(inputs_int) * dequant(kernel_int) + dequant(bias_int)
             # i.e. exact same as dequantizing all the values above, before using them (mode="dequant_before")
             # It also gives the exact same output
@@ -305,4 +324,21 @@ class DenseTFLite(Dense):
                 * self.input_scale
                 * self.kernel_scale
             ) + dequant_from_tflite_params(quant_bias, self.bias_scale, self.bias_zp)
+            return y
+
+        if self.MODE == "mine":
+            # Expanded on Gary's method - use the same formula, but do more quantize+dequantize
+            # This approach gives the results closest to TFLite's
+            # See ./tflite_formula_derivation.pdf for the derivation of below formula
+            y = tf.matmul(
+                tf.cast(quant_input, tf.int32) - self.input_zp,
+                tf.cast(quant_kernel, tf.int32) - self.kernel_zp,
+            )
+            y = tf.cast(y, tf.float32) * self.input_scale * self.kernel_scale
+            y = y + dequant_from_tflite_params(
+                quant_bias, self.bias_scale, self.bias_zp
+            )
+            # quantize and dequantize the outputs to account for loss of information when quantizing
+            y = quant_from_tflite_params(y, self.output_scale, self.output_zp)
+            y = dequant_from_tflite_params(y, self.output_scale, self.output_zp)
             return y

@@ -1,0 +1,65 @@
+\documentclass{article}
+
+% Language setting
+% Replace `english' with e.g. `spanish' to change the document language
+\usepackage[english]{babel}
+\usepackage{amsmath}
+
+% Set page size and margins
+% Replace `letterpaper' with`a4paper' for UK/EU standard size
+\usepackage[letterpaper,top=2cm,bottom=2cm,left=3cm,right=3cm,marginparwidth=1.75cm]{geometry}
+
+% Useful packages
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage[colorlinks=true, allcolors=blue]{hyperref}
+
+\title{Deriving Formula for mimicking TFLite model}
+\date{}
+\begin{document}
+\maketitle
+
+\section{Variables}
+
+Let $f_i, f_w, f_b$ be the \verb|fp32| inputs, weights, and biases (from the \verb|fp32| model).
+\linebreak
+Let $q_i, q_w, q_b$ be the \verb|int8/int32| inputs, weights, and biases (calculated from quantizing $f_i, f_w, f_b$ using the respective quantization parameters). The values $s_x, z_x$ are then the respective quantization scale and zero-point parameters. \\ \\
+To quantize a value:
+
+\begin{equation} \label{eq1}
+\begin{split}
+q_x = f_x / s_x + z_x
+\end{split}
+\end{equation}
+\\
+To dequantize a value:
+
+\begin{equation} \label{eq2}
+\begin{split}
+f_x = (q_x - z_x) * s_x
+\end{split}
+\end{equation}
+
+\section{Dense Layer Calculation}
+
+The Dense layer calculation is then normally:
+\begin{equation} \label{eq3}
+\begin{split}
+f_o &= f_i \cdot f_w + f_b
+\end{split}
+\end{equation}
+
+\subsection{Writing the calculation in terms of quantized values and parameters}
+
+Since \verb|netron| shows quantized weights and biases, we assume that TFLite has quantized $q_i, q_w, q_b$. To recreate the TFLite model in tensorflow, we would first need to calculate  $q_i, q_w, q_b$ from quantizing $f_i, f_w, f_b$. Then, for $f_o$ with type \verb|fp32|:
+
+\begin{equation} \label{eq4}
+\begin{split}
+f_o &= f_i \cdot f_w + f_b \\
+ & = ((q_i-z_i)*s_i) \cdot ((q_w-z_w)*s_w) + ((q_b-z_b)*s_b)\\
+ & = (q_i-z_i) \cdot (q_w-z_w)*s_i*s_w + ((q_b-z_b)*s_b)
+\end{split}
+\end{equation}
+\end{document}
+
+We use 4 for implementing the dense layer, and will then quantize and dequantize $f_o$ using $s_o, z_o$

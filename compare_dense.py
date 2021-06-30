@@ -1,4 +1,4 @@
-# The aim is to mimic keras' dense layer
+# The aim is to mimic keras' dense layer and TFLite's quantization approach.
 
 import os
 from pathlib import Path
@@ -54,8 +54,7 @@ tflite_model = tflite_runner.create_tflite_model(
     train_images, base_model, "saved_models/base_model_dense4.tflite"
 )
 
-# Setup the custom dense layer model
-# with hardcoded param from tflite
+# Setup the custom dense layer model with params from tflite
 tensor_details = tflite_runner.get_interpreter(tflite_model).get_tensor_details()
 
 custom_model = keras.Sequential(
@@ -111,9 +110,6 @@ custom_model = keras.Sequential(
             output_scale=tensor_details[14]["quantization"][0],
             output_zp=tensor_details[14]["quantization"][1],
         ),
-        # custom_layers.Dense(10),
-        # custom_layers.Dense(10),
-        # custom_layers.Dense(10),
     ]
 )
 custom_model.compile(
@@ -123,7 +119,8 @@ custom_model.compile(
 )
 
 # Copy weights from regular model to custom model,
-# since custom model has issues training with the fake_quant thigns
+# since we focus on using custom model for inference, and don't train it
+# Also, the custom model may have issues training with the fake_quant things
 for regular_layer, custom_layer in zip(base_model.layers, custom_model.layers):
     custom_layer.set_weights(regular_layer.get_weights())
     # Verify that weights were loaded
@@ -150,9 +147,16 @@ tflite_output = tflite_output.flatten()
 
 # Check that Custom model is closer to tflite, than base model
 # Also compare the custom fake quant model to tflite model
-# TODO eventually also check that custom model is closer to tflite than QAT model
+# TODO also check that custom model is closer to tflite than QAT model
 utils.output_stats(base_output, custom_output, "Base vs Custom", "Dense", 1e-2, SEED)
 utils.output_stats(base_output, tflite_output, "Base vs TFLite", "Dense", 1e-2, SEED)
 utils.output_stats(
     custom_output, tflite_output, "Custom vs TFLite", "Dense", 1e-2, SEED
 )
+
+# comparision = np.isclose(custom_output, tflite_output, rtol=0, atol=1e-2)
+# if np.count_nonzero(~comparision) != 0:
+#     print("Differing model ouputs are:")
+#     for i, val in enumerate(comparision):
+#         if val == False:
+#             print("CustomTF:\t", custom_output[i], "\tTFLite:\t", tflite_output[i])

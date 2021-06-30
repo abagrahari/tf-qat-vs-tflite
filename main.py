@@ -14,7 +14,6 @@ import os
 
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 
-import numpy as np
 import tensorflow as tf
 import tensorflow_model_optimization as tfmot
 from tensorflow import keras
@@ -147,7 +146,9 @@ elif EVAL_PATCHED_QAT:
     # Create quantized model for TFLite
     # After this, we will have an actually quantized model with int8 weights and uint8 activations.
 
-    quantized_tflite_model = tflite_runner.create_tflite_model(train_images, qat_model2)
+    quantized_tflite_model = tflite_runner.create_tflite_model(
+        train_images, qat_model2, f"saved_models/qat_{MODEL_TYPE}_{SEED}.tflite"
+    )
 
     # Evaluate and see if accuracy from TensorFlow persists to TFLite.
     tflite_model_accuracy = tflite_runner.evaluate_tflite_model(
