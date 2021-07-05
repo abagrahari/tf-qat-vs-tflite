@@ -51,7 +51,7 @@ else:
 
 
 tflite_model = tflite_runner.create_tflite_model(
-    train_images, base_model, "saved_models/base_model_dense4.tflite"
+    train_images, base_model, f"saved_models/base_model_dense_{SEED}.tflite"
 )
 
 # Setup the custom dense layer model with params from tflite
@@ -146,9 +146,7 @@ custom_output = custom_output.flatten()
 tflite_output = tflite_output.flatten()
 
 # Check that Custom model is closer to tflite, than base model
-# Also compare the custom fake quant model to tflite model
 # TODO also check that custom model is closer to tflite than QAT model
-utils.output_stats(base_output, custom_output, "Base vs Custom", "Dense", 1e-2, SEED)
 utils.output_stats(base_output, tflite_output, "Base vs TFLite", "Dense", 1e-2, SEED)
 utils.output_stats(
     custom_output, tflite_output, "Custom vs TFLite", "Dense", 1e-2, SEED

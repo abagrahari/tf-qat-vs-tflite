@@ -1,15 +1,10 @@
-from pathlib import Path
+import os
 
 import numpy as np
 import tensorflow as tf
 
 
 def create_tflite_model(train_images, keras_model, model_path):
-    if Path(model_path).exists():
-        with open(model_path, "rb") as f:
-            tflite_model = f.read()
-        return tflite_model
-
     def representative_dataset():
         # Use the same inputs as what QAT model saw for calibration
         for data in (
@@ -28,6 +23,9 @@ def create_tflite_model(train_images, keras_model, model_path):
     converter.inference_output_type = tf.int8  # or tf.uint8 for Coral
     converter.representative_dataset = representative_dataset
     tflite_model = converter.convert()
+
+    if not os.path.exists("saved_models"):
+        os.makedirs("saved_models")
     with open(model_path, "wb") as f:
         f.write(tflite_model)
     return tflite_model

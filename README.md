@@ -6,26 +6,19 @@ Using the skeleton from [TensorFlow's QAT Example](https://www.tensorflow.org/mo
 ## Environment setup:
 - `conda env create --file environment.yml`
 - `conda activate tf-exp`
-- `jupyter labextension install @jupyter-widgets/jupyterlab-manager`
-- `jupyter-lab`
 
 ## Running
 
-To compare the QAT model with the tflite model, we use a 2-step approach:
+To compare the QAT & custom model with the tflite models, we use a 2-step approach:
 ```bash
-python main.py --model dense4
-python main.py --model dense4 --eval
+python main.py
+python main.py --eval
 ```
 
-or to iterate through the options (seeds, model types, etc.):
+or to iterate through the different seeds:
 
 ```bash
 ./run.sh
-```
-
-To compare the custom dense layers with the tflite model:
-```
-python compare_dense.py
 ```
 
 ## TF's Documentation on running a model with tflite

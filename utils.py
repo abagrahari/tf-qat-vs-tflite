@@ -21,7 +21,6 @@ def output_stats(
     x: np.ndarray,
     y: np.ndarray,
     test_name: str,
-    model: str,
     tol: float,
     seed: int,
 ):
@@ -43,7 +42,7 @@ def output_stats(
     err_rel = err_rel[np.isfinite(err_rel)]
 
     print(f"--------------------- {test_name.upper()} ---------------------")
-    print(f"Model: {model}; TestStatus: {status}; Tolerance: {tol}; Seed: {seed}")
+    print(f"TestStatus: {status}; Tolerance: {tol}; Seed: {seed}")
     print(f"Max Error: {np.max(err)}")
     print(f"Max Relative Error: {np.max(err_rel)}")
     print(f"Mean Error: {np.mean(err)}")
@@ -58,7 +57,7 @@ def output_stats(
             )
             summary_writer.writerow(
                 [
-                    "Model",
+                    "Test",
                     "Seed",
                     "Test Status",
                     "Max Error",
@@ -73,7 +72,7 @@ def output_stats(
         )
         summary_writer.writerow(
             [
-                model,
+                test_name,
                 seed,
                 status,
                 np.max(err),
