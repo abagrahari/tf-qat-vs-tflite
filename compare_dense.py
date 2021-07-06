@@ -136,15 +136,24 @@ print("Base test accuracy:", base_model_accuracy)
 print("Custom test accuracy:", custom_model_accuracy)
 print("TFLite test_accuracy:", tflite_model_accuracy)
 
-
 # index is 0->4 (Flatten,Dense,Dense,Dense,Dense)
 extractor = keras.Model(
     inputs=custom_model.inputs, outputs=[layer.output for layer in custom_model.layers]
 )
 # list of tf.Tensors. 1 element for each layer
 extractor_output = extractor(test_images)
-for intermediate_output in extractor_output:
-    # TODO: compare intermediate_output to tflite model's intermediate outputs
+extractor_tflite_outputs = tflite_runner.collect_intermediate_outputs(
+    tflite_model, test_images
+)
+for idx, (intermediate_output, intermediate_tflite_output) in enumerate(
+    zip(extractor_output, extractor_tflite_outputs)
+):
+
+    custom_output = intermediate_output.numpy().flatten()
+    tflite_output = intermediate_tflite_output.numpy().flatten()
+    utils.output_stats(
+        custom_output, tflite_output, f"Custom vs TFLite - Layer {idx}", 1e-2, SEED
+    )
     pass
 
 
@@ -157,8 +166,9 @@ custom_output = custom_output.flatten()
 tflite_output = tflite_output.flatten()
 
 # Check that Custom model is closer to tflite, than base model
-utils.output_stats(base_output, tflite_output, "Base vs TFLite", 1e-2, SEED)
-utils.output_stats(custom_output, tflite_output, "Custom vs TFLite", 1e-2, SEED)
+utils.output_stats(
+    custom_output, tflite_output, "Custom vs TFLite - Overall", 1e-2, SEED
+)
 
 # comparision = np.isclose(custom_output, tflite_output, rtol=0, atol=1e-2)
 # if np.count_nonzero(~comparision) != 0:
