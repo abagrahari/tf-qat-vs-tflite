@@ -172,6 +172,19 @@ def dequant_from_tflite_params(
     return (tf.cast(x_int8, tf.float32) - zero_point) * scale
 
 
+def fake_quant(x: tf.Tensor, scale: float, zero_point: int, bits=8) -> tf.Tensor:
+    """FakeQuantize a tensor using built-in tf functions and parameters from a tflite model."""
+    # Calculate min/max from tflite params
+    min = (-128 - zero_point) * scale
+    max = (127 - zero_point) * scale
+    # FakeQuantWithMinMaxVars requires that 0.0 is always in the [min; max] range.
+    range_min = tf.math.minimum(min, 0.0)
+    range_max = tf.math.maximum(0.0, max)
+    return tf.quantization.fake_quant_with_min_max_vars(
+        x, range_min, range_max, num_bits=bits
+    )
+
+
 class FlattenTFLite(keras.layers.Layer):
     """Flattens the input.
 
@@ -194,7 +207,7 @@ class FlattenTFLite(keras.layers.Layer):
         self.input_zp = input_zp
         self.output_scale = output_scale
         self.output_zp = output_zp
-        # input params will be same as output params (most likely)
+        # TFLite quantization spec requires input params are same as output params.
 
     def call(self, inputs: tf.Tensor):
         # Logic to flatten inputs was borrowed from TF's implementation
@@ -206,8 +219,11 @@ class FlattenTFLite(keras.layers.Layer):
         y = tf.reshape(inputs, flattened_shape)
 
         # quantize and dequantize y using self.scale and self.zero_point
-        y = quant_from_tflite_params(y, self.input_scale, self.input_zp, tf.int8)
-        y = dequant_from_tflite_params(y, self.input_scale, self.input_zp)
+        # y = quant_from_tflite_params(y, self.input_scale, self.input_zp, tf.int8)
+        # y = dequant_from_tflite_params(y, self.input_scale, self.input_zp)
+        # Seems fake_quant is identical to using above dequant(quant(...))
+        y = fake_quant(y, self.input_scale, self.input_zp)
+
         return y
 
 
@@ -261,26 +277,25 @@ class DenseTFLite(Dense):
         self.kernel_scale = kernel_scale
         self.kernel_zp = kernel_zp
         self.bias_scale = bias_scale
+        # Note: bias_scale = input_scale * kernel_scale as per tflite quantization spec
         self.bias_zp = bias_zp
         self.output_scale = output_scale
         self.output_zp = output_zp
-        self.MODE = "mine"  # For debugging
-        # self.mode is set to one of the below options as a constant
+        self.mode = "FakeQuant"
 
     def call(self, inputs: tf.Tensor):
-        # quantize using scale and zero_point
-        quant_input = quant_from_tflite_params(
-            inputs, self.input_scale, self.input_zp, tf.int8
-        )
-        quant_kernel = quant_from_tflite_params(
-            self.kernel, self.kernel_scale, self.kernel_zp, tf.int8
-        )
-        quant_bias = quant_from_tflite_params(
-            self.bias, self.bias_scale, self.bias_zp, tf.int32
-        )
-
-        if self.MODE == "dequant_before":
-            # Dequantize - only used for debugging
+        # the formula in ./tflite_formula_derivation.pdf is i.e. quant+dequant before using the values
+        if self.mode == "DequantQuant":
+            # quantize using scale and zero_point
+            quant_input = quant_from_tflite_params(
+                inputs, self.input_scale, self.input_zp, tf.int8
+            )
+            quant_kernel = quant_from_tflite_params(
+                self.kernel, self.kernel_scale, self.kernel_zp, tf.int8
+            )
+            quant_bias = quant_from_tflite_params(
+                self.bias, self.bias_scale, self.bias_zp, tf.int32
+            )
             dequant_input = dequant_from_tflite_params(
                 quant_input, self.input_scale, self.input_zp
             )
@@ -293,52 +308,32 @@ class DenseTFLite(Dense):
             # Use regular matmul and addition
             y: tf.Tensor = tf.matmul(dequant_input, dequant_kernel)
             y = tf.nn.bias_add(y, dequant_bias)
-            return y
-
-        if self.MODE == "wrong_domain":
-            # This approach will not work, since it would be incorrectly converting between
-            # input and ouput quantization domains.
-            # quant_input and quant_kernel are not enough to know the quantization domains
-            # We must also account for scale_i, scale_kernel, zp_i, zp_kernel to
-            # convert between domains
-
-            # Use regular matmul and addition
-            y: tf.Tensor = tf.matmul(
-                tf.cast(quant_input, tf.int32), tf.cast(quant_kernel, tf.int32)
-            )
-            y = tf.nn.bias_add(y, quant_bias)
-            # Outputs will have int32 type.
-            # Dequantize outputs
-            y = dequant_from_tflite_params(y, self.output_scale, self.output_zp)
-            return y
-
-        if self.MODE == "gary":
-            # Formula per Gary's method - essentially just: dequant(inputs_int) * dequant(kernel_int) + dequant(bias_int)
-            # i.e. exact same as dequantizing all the values above, before using them (mode="dequant_before")
-            # It also gives the exact same output
-            y = (
-                tf.matmul(
-                    tf.cast(quant_input, tf.float32) - self.input_zp,
-                    tf.cast(quant_kernel, tf.float32) - self.kernel_zp,
-                )
-                * self.input_scale
-                * self.kernel_scale
-            ) + dequant_from_tflite_params(quant_bias, self.bias_scale, self.bias_zp)
-            return y
-
-        if self.MODE == "mine":
-            # Expanded on Gary's method - use the same formula, but do more quantize+dequantize
-            # This approach gives the results closest to TFLite's
-            # See ./tflite_formula_derivation.pdf for the derivation of below formula
-            y = tf.matmul(
-                tf.cast(quant_input, tf.int32) - self.input_zp,
-                tf.cast(quant_kernel, tf.int32) - self.kernel_zp,
-            )
-            y = tf.cast(y, tf.float32) * self.input_scale * self.kernel_scale
-            y = y + dequant_from_tflite_params(
-                quant_bias, self.bias_scale, self.bias_zp
-            )
+            if self.activation is not None:
+                y = self.activation(y)
             # quantize and dequantize the outputs to account for loss of information when quantizing
+            # This is redundant on all layers except the final output layer
+            # I've left it in for now to make it easier to compare this layer's intermediate outputs with the tflite model
             y = quant_from_tflite_params(y, self.output_scale, self.output_zp)
             y = dequant_from_tflite_params(y, self.output_scale, self.output_zp)
+            return y
+        if self.mode == "FakeQuant":
+            # https://www.tensorflow.org/lite/performance/quantization_spec#int8_quantized_operator_specifications
+            fq_input = fake_quant(inputs, self.input_scale, self.input_zp)
+            fq_kernel = fake_quant(self.kernel, self.kernel_scale, self.kernel_zp)
+            # fake_quant_with_min_max_vars does not quantize to 32 bits
+            quant_bias = quant_from_tflite_params(
+                self.bias, self.bias_scale, self.bias_zp, tf.int32
+            )
+            dequant_bias = dequant_from_tflite_params(
+                quant_bias, self.bias_scale, self.bias_zp
+            )
+            # Use regular matmul and addition
+            y: tf.Tensor = tf.matmul(fq_input, fq_kernel)
+            y = tf.nn.bias_add(y, dequant_bias)
+            if self.activation is not None:
+                y = self.activation(y)
+            # FakeQuant the outputs to account for loss of information when quantizing
+            # This is redundant on all layers except the final output layer
+            # I've left it in for now to make it easier to compare this layer's intermediate outputs with the tflite model
+            y = fake_quant(y, self.output_scale, self.output_zp)
             return y

@@ -49,7 +49,6 @@ else:
         saved_weights_path
     ).assert_existing_objects_matched().expect_partial()
 
-
 tflite_model = tflite_runner.create_tflite_model(
     train_images, base_model, f"saved_models/base_model_dense_{SEED}.tflite"
 )
@@ -137,6 +136,18 @@ print("Base test accuracy:", base_model_accuracy)
 print("Custom test accuracy:", custom_model_accuracy)
 print("TFLite test_accuracy:", tflite_model_accuracy)
 
+
+# index is 0->4 (Flatten,Dense,Dense,Dense,Dense)
+extractor = keras.Model(
+    inputs=custom_model.inputs, outputs=[layer.output for layer in custom_model.layers]
+)
+# list of tf.Tensors. 1 element for each layer
+extractor_output = extractor(test_images)
+for intermediate_output in extractor_output:
+    # TODO: compare intermediate_output to tflite model's intermediate outputs
+    pass
+
+
 # Run test dataset on models
 base_output: np.ndarray = base_model.predict(test_images)
 custom_output: np.ndarray = custom_model.predict(test_images)
@@ -146,11 +157,8 @@ custom_output = custom_output.flatten()
 tflite_output = tflite_output.flatten()
 
 # Check that Custom model is closer to tflite, than base model
-# TODO also check that custom model is closer to tflite than QAT model
-utils.output_stats(base_output, tflite_output, "Base vs TFLite", "Dense", 1e-2, SEED)
-utils.output_stats(
-    custom_output, tflite_output, "Custom vs TFLite", "Dense", 1e-2, SEED
-)
+utils.output_stats(base_output, tflite_output, "Base vs TFLite", 1e-2, SEED)
+utils.output_stats(custom_output, tflite_output, "Custom vs TFLite", 1e-2, SEED)
 
 # comparision = np.isclose(custom_output, tflite_output, rtol=0, atol=1e-2)
 # if np.count_nonzero(~comparision) != 0:
