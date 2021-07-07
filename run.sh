@@ -1,4 +1,5 @@
 #!/bin/bash
+set -x # echo all commands as they run
 rm summary.csv 2> /dev/null
 rm summary_monkeypatch.csv 2> /dev/null
 rm -r saved_weights/ 2> /dev/null

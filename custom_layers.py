@@ -172,16 +172,38 @@ def dequant_from_tflite_params(
     return (tf.cast(x_int8, tf.float32) - zero_point) * scale
 
 
-def fake_quant(x: tf.Tensor, scale: float, zero_point: int, bits=8) -> tf.Tensor:
-    """FakeQuantize a tensor using built-in tf functions and parameters from a tflite model."""
+def fake_quant(
+    x: tf.Tensor,
+    scale: float,
+    zero_point: int,
+    bits=8,
+    narrow=False,
+    symmetric=False,
+    min_spec=-128,
+) -> tf.Tensor:
+    """FakeQuantize a tensor using built-in tf functions and parameters from a tflite model.
+
+    Args:
+      x: tf.Tensor to quantize
+      scale: `scale` quantization parameter, from tflite
+      zero_point: `zero-point` quantization parameter, from tflite
+      bits: bitwidth of the quantization; between 2 and 16, inclusive
+      narrow: bool; narrow_range arg of fake_quant_with_min_max_vars
+      symmetric: Whether to symmetrically quantize the tensor (i.e. should min=-max?)
+      min_spec: 'min' value of the range of the quantized tensor, as defined in tflite's quantization spec
+    """
     # Calculate min/max from tflite params
-    min = (-128 - zero_point) * scale
+    min = (min_spec - zero_point) * scale
     max = (127 - zero_point) * scale
+    if symmetric and narrow:
+        # Based on the AllValuesQuantize here https://git.io/Jc9v9
+        min = tf.math.minimum(min, max * -1)
+        max = tf.math.maximum(max, min * -1)
     # FakeQuantWithMinMaxVars requires that 0.0 is always in the [min; max] range.
     range_min = tf.math.minimum(min, 0.0)
     range_max = tf.math.maximum(0.0, max)
     return tf.quantization.fake_quant_with_min_max_vars(
-        x, range_min, range_max, num_bits=bits
+        x, range_min, range_max, num_bits=bits, narrow_range=narrow
     )
 
 
@@ -319,7 +341,13 @@ class DenseTFLite(Dense):
         if self.mode == "FakeQuant":
             # https://www.tensorflow.org/lite/performance/quantization_spec#int8_quantized_operator_specifications
             fq_input = fake_quant(inputs, self.input_scale, self.input_zp)
-            fq_kernel = fake_quant(self.kernel, self.kernel_scale, self.kernel_zp)
+            fq_kernel = fake_quant(
+                self.kernel,
+                self.kernel_scale,
+                self.kernel_zp,
+                narrow=True,  # tflite spec says it uses narrow_range for weights, with below value
+                min_spec=-127,
+            )
             # fake_quant_with_min_max_vars does not quantize to 32 bits
             quant_bias = quant_from_tflite_params(
                 self.bias, self.bias_scale, self.bias_zp, tf.int32
