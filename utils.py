@@ -31,9 +31,16 @@ def output_stats(
 
     # Error is defined as the difference between the two outputs
     err = np.abs(x - y)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        err_rel = err / np.abs(y)
+        # Ignore "divide by zero" RuntimeWarning
+    # Filter out nan and inf created by dividing by 0
+    err_rel = err_rel[np.isfinite(err_rel)]
+
     if ax is not None:
 
-        hist, bins = np.histogram(err, bins=50)
+        hist, bins = np.histogram(err_rel, bins=50)
         width = 0.7 * (bins[1] - bins[0])
         center = (bins[:-1] + bins[1:]) / 2
         ax.bar(center, hist, align="center", width=width)
@@ -43,17 +50,9 @@ def output_stats(
         if "2" in test_name:
             plt.figure()
             plt.bar(center, hist, align="center", width=width)
-            plt.xlabel("Error amount")
+            plt.xlabel("Relative Error")
             plt.ylabel("Number of outupts")
             plt.title(f"{test_name}")
-            plt.show
-
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        err_rel = err / np.abs(y)
-        # Ignore "divide by zero" RuntimeWarning
-    # Filter out nan and inf created by dividing by 0
-    err_rel = err_rel[np.isfinite(err_rel)]
 
     print(f"--------------------- {test_name.upper()} ---------------------")
     print(f"TestStatus: {status}; Tolerance: {tol}; Seed: {seed}")
@@ -95,3 +94,17 @@ def output_stats(
                 num_mismatch / x.shape[0] * 100,
             ]
         )
+
+
+def get_max_rel_err(x: np.ndarray, y: np.ndarray, tol: float) -> float:
+    """Get max relative error"""
+    assert x.shape == y.shape
+    # Error is defined as the difference between the two outputs
+    err = np.abs(x - y)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        err_rel = err / np.abs(y)
+        # Ignore "divide by zero" RuntimeWarning
+    # Filter out nan and inf created by dividing by 0
+    err_rel = err_rel[np.isfinite(err_rel)]
+    return np.max(err_rel)

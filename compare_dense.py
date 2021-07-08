@@ -6,6 +6,7 @@ from pathlib import Path
 
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 
+import matplotlib.pyplot as plt
 import numpy as np
 import tensorflow as tf
 from tensorflow import keras
@@ -152,12 +153,54 @@ print("TFLite test_accuracy:", tflite_model_accuracy)
 extractor = keras.Model(
     inputs=custom_model.inputs, outputs=[layer.output for layer in custom_model.layers]
 )
-# list of tf.Tensors. 1 element for each layer
-extractor_output = extractor(test_images)
-extractor_tflite_outputs = tflite_runner.collect_intermediate_outputs(
-    tflite_model, test_images
-)
-import matplotlib.pyplot as plt
+
+
+def run_intermeidate_outputs(lower_limit, upper_limit):
+    imgs = test_images[lower_limit:upper_limit]
+    if lower_limit == upper_limit:
+        # Expand first dimension to account for batch size when running single image
+        imgs = np.expand_dims(test_images[lower_limit], axis=0).astype(np.float32)
+    extractor_output = extractor(imgs)
+    extractor_tflite_outputs = tflite_runner.collect_intermediate_outputs(
+        tflite_model, imgs
+    )
+    return extractor_output, extractor_tflite_outputs
+
+
+# Recursive Binary Search Function
+# It returns index of image that causes the given relative_error
+# else returns -1
+def binary_search(imgs, low, high, relative_error_target):
+    # Check base case
+    if high >= low:
+        mid = (high + low) // 2
+        extractor_output, extractor_tflite_outputs = run_intermeidate_outputs(low, mid)
+        custom_output = extractor_output[2].numpy().flatten()
+        tflite_output = extractor_tflite_outputs[2].numpy().flatten()
+        max_rel_err = utils.get_max_rel_err(custom_output, tflite_output, 1e-2)
+        if max_rel_err == relative_error_target:
+            if low == mid:
+                # the image has been found
+                return mid
+            # Otherwise, the desired image is in the left half
+            return binary_search(imgs, low, mid - 1, relative_error_target)
+
+        if max_rel_err != relative_error_target:
+            # the desired image must be in the right half
+            return binary_search(imgs, mid, high, relative_error_target)
+    else:
+        # Element is not present in the array
+        return -1
+
+
+result = binary_search(test_images, 0, test_images.shape[0], 80)
+
+if result != -1:
+    print("Index: ", result)
+
+# lists of tf.Tensors. 1 element for each layer
+extractor_output, extractor_tflite_outputs = run_intermeidate_outputs(
+    0, test_images.shape[0]
 
 fig, axs = plt.subplots(1, 5)
 for idx, (intermediate_output, intermediate_tflite_output) in enumerate(
@@ -174,7 +217,6 @@ for idx, (intermediate_output, intermediate_tflite_output) in enumerate(
         axs[idx],
     )
 plt.show()
-
 
 # Run test dataset on models
 base_output: np.ndarray = base_model.predict(test_images)
