@@ -345,8 +345,8 @@ class DenseTFLite(Dense):
                 self.kernel,
                 self.kernel_scale,
                 self.kernel_zp,
-                narrow=True,  # tflite spec says it uses narrow_range for weights, with below value
-                min_spec=-127,
+                # narrow=True,  # tflite spec says it uses narrow_range for weights, with below value
+                # min_spec=-127,
             )
             # fake_quant_with_min_max_vars does not quantize to 32 bits
             quant_bias = quant_from_tflite_params(

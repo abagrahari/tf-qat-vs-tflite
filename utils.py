@@ -2,6 +2,7 @@ import csv
 import warnings
 from pathlib import Path
 
+import matplotlib.pyplot as plt
 import numpy as np
 from tensorflow import keras
 
@@ -18,11 +19,7 @@ def load_mnist():
 
 
 def output_stats(
-    x: np.ndarray,
-    y: np.ndarray,
-    test_name: str,
-    tol: float,
-    seed: int,
+    x: np.ndarray, y: np.ndarray, test_name: str, tol: float, seed: int, ax=None
 ):
     """Output summary statistics"""
     assert x.shape == y.shape
@@ -34,6 +31,16 @@ def output_stats(
 
     # Error is defined as the difference between the two outputs
     err = np.abs(x - y)
+    if ax is not None:
+
+        hist, bins = np.histogram(err, bins=50)
+        width = 0.7 * (bins[1] - bins[0])
+        center = (bins[:-1] + bins[1:]) / 2
+        ax.bar(center, hist, align="center", width=width)
+        ax.set_xlabel("Error amount")
+        ax.set_ylabel("Number of outupts")
+        ax.set_title(f"{test_name}")
+
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         err_rel = err / np.abs(y)

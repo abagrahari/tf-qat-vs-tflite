@@ -1,5 +1,6 @@
 # The aim is to mimic keras' dense layer and TFLite's quantization approach.
 
+import argparse
 import os
 from pathlib import Path
 
@@ -13,15 +14,17 @@ import custom_layers
 import tflite_runner
 import utils
 
-SEED = 0
+parser = argparse.ArgumentParser()
+
+parser.add_argument("--seed", help="seed for tf.random", type=int, default=0)
+args = parser.parse_args()
+
+SEED: int = args.seed
 
 tf.random.set_seed(SEED)
 
 # Load MNIST dataset
 (train_images, train_labels), (test_images, test_labels) = utils.load_mnist()
-
-# Setup the base model
-tf.random.set_seed(SEED)
 
 base_model = keras.Sequential(
     [
@@ -145,15 +148,23 @@ extractor_output = extractor(test_images)
 extractor_tflite_outputs = tflite_runner.collect_intermediate_outputs(
     tflite_model, test_images
 )
+import matplotlib.pyplot as plt
+
+fig, axs = plt.subplots(1, 5)
 for idx, (intermediate_output, intermediate_tflite_output) in enumerate(
     zip(extractor_output, extractor_tflite_outputs)
 ):
-    continue
     custom_output = intermediate_output.numpy().flatten()
     tflite_output = intermediate_tflite_output.numpy().flatten()
     utils.output_stats(
-        custom_output, tflite_output, f"Custom vs TFLite - Layer {idx}", 1e-2, SEED
+        custom_output,
+        tflite_output,
+        f"Layer {idx}",
+        1e-2,
+        SEED,
+        axs[idx],
     )
+plt.show()
 
 
 # Run test dataset on models
