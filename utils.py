@@ -40,6 +40,13 @@ def output_stats(
         ax.set_xlabel("Error amount")
         ax.set_ylabel("Number of outupts")
         ax.set_title(f"{test_name}")
+        if "2" in test_name:
+            plt.figure()
+            plt.bar(center, hist, align="center", width=width)
+            plt.xlabel("Error amount")
+            plt.ylabel("Number of outupts")
+            plt.title(f"{test_name}")
+            plt.show
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")

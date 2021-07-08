@@ -57,7 +57,8 @@ tflite_model = tflite_runner.create_tflite_model(
 )
 
 # Setup the custom dense layer model with params from tflite
-tensor_details = tflite_runner.get_interpreter(tflite_model).get_tensor_details()
+interpreter = tflite_runner.get_interpreter(tflite_model)
+tensor_details = interpreter.get_tensor_details()
 
 custom_model = keras.Sequential(
     [
@@ -78,6 +79,8 @@ custom_model = keras.Sequential(
             bias_zp=tensor_details[3]["quantization"][1],
             output_scale=tensor_details[11]["quantization"][0],
             output_zp=tensor_details[11]["quantization"][1],
+            kernel_tflite=interpreter.get_tensor(2).transpose(),
+            bias_tflite=interpreter.get_tensor(3),
         ),
         custom_layers.DenseTFLite(
             10,
@@ -89,6 +92,8 @@ custom_model = keras.Sequential(
             bias_zp=tensor_details[5]["quantization"][1],
             output_scale=tensor_details[12]["quantization"][0],
             output_zp=tensor_details[12]["quantization"][1],
+            kernel_tflite=interpreter.get_tensor(4).transpose(),
+            bias_tflite=interpreter.get_tensor(5),
         ),
         custom_layers.DenseTFLite(
             10,
@@ -100,6 +105,8 @@ custom_model = keras.Sequential(
             bias_zp=tensor_details[7]["quantization"][1],
             output_scale=tensor_details[13]["quantization"][0],
             output_zp=tensor_details[13]["quantization"][1],
+            kernel_tflite=interpreter.get_tensor(6).transpose(),
+            bias_tflite=interpreter.get_tensor(7),
         ),
         custom_layers.DenseTFLite(
             10,
@@ -111,6 +118,8 @@ custom_model = keras.Sequential(
             bias_zp=tensor_details[9]["quantization"][1],
             output_scale=tensor_details[14]["quantization"][0],
             output_zp=tensor_details[14]["quantization"][1],
+            kernel_tflite=interpreter.get_tensor(8).transpose(),
+            bias_tflite=interpreter.get_tensor(9),
         ),
     ]
 )

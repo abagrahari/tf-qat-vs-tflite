@@ -290,6 +290,8 @@ class DenseTFLite(Dense):
         bias_zp=0,
         output_scale=1,
         output_zp=0,
+        kernel_tflite=None,
+        bias_tflite=None,
         **kwargs,
     ):
         super().__init__(units, activation, **kwargs)
@@ -303,9 +305,34 @@ class DenseTFLite(Dense):
         self.bias_zp = bias_zp
         self.output_scale = output_scale
         self.output_zp = output_zp
+        self.kernel_tflite = kernel_tflite
+        self.bias_tflite = bias_tflite
         self.mode = "FakeQuant"
 
     def call(self, inputs: tf.Tensor):
+
+        # Verify that kernel and bias are quantizing correctly
+        quant_kernel = quant_from_tflite_params(
+            self.kernel, self.kernel_scale, self.kernel_zp, tf.int8
+        )
+        quant_bias = quant_from_tflite_params(
+            self.bias, self.bias_scale, self.bias_zp, tf.int32
+        )
+        # Verify quantized kernel matches int8 kernel from tflite
+        tf.debugging.assert_equal(quant_kernel, self.kernel_tflite)
+        # Verify quantized bias matches int32 bias from tflite
+        tf.debugging.assert_equal(quant_bias, self.bias_tflite)
+        # Verify that quantizing the FakeQuantized kernel matches int8 kernel from tflite
+        fq_kernel = fake_quant(
+            self.kernel,
+            self.kernel_scale,
+            self.kernel_zp,
+        )
+        quant_kernel = quant_from_tflite_params(
+            fq_kernel, self.kernel_scale, self.kernel_zp, tf.int8
+        )
+        tf.debugging.assert_equal(quant_kernel, self.kernel_tflite)
+
         # the formula in ./tflite_formula_derivation.pdf is i.e. quant+dequant before using the values
         if self.mode == "DequantQuant":
             # quantize using scale and zero_point
