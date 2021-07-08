@@ -308,6 +308,7 @@ class DenseTFLite(Dense):
         self.kernel_tflite = kernel_tflite
         self.bias_tflite = bias_tflite
         self.mode = "FakeQuant"
+        self.debug = False  # For debugging overflow issues in layer
 
     def call(self, inputs: tf.Tensor):
 
@@ -384,6 +385,9 @@ class DenseTFLite(Dense):
             )
             # Use regular matmul and addition
             y: tf.Tensor = tf.matmul(fq_input, fq_kernel)
+            if self.debug:
+                tf.print(y)
+
             y = tf.nn.bias_add(y, dequant_bias)
             if self.activation is not None:
                 y = self.activation(y)

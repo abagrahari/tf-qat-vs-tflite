@@ -193,14 +193,15 @@ def binary_search(imgs, low, high, relative_error_target):
         return -1
 
 
-result = binary_search(test_images, 0, test_images.shape[0], 80)
+# result = binary_search(test_images, 0, test_images.shape[0], 80)
 
-if result != -1:
-    print("Index: ", result)
+# if result != -1:
+#     print("Index: ", result)
 
+custom_model.layers[2].debug = True  # to print only the next iteration's info
 # lists of tf.Tensors. 1 element for each layer
-extractor_output, extractor_tflite_outputs = run_intermeidate_outputs(
-    0, test_images.shape[0]
+extractor_output, extractor_tflite_outputs = run_intermeidate_outputs(9070, 9070)
+custom_model.layers[2].debug = False
 
 fig, axs = plt.subplots(1, 5)
 for idx, (intermediate_output, intermediate_tflite_output) in enumerate(
@@ -216,7 +217,6 @@ for idx, (intermediate_output, intermediate_tflite_output) in enumerate(
         SEED,
         axs[idx],
     )
-plt.show()
 
 # Run test dataset on models
 base_output: np.ndarray = base_model.predict(test_images)
@@ -237,3 +237,5 @@ utils.output_stats(
 #     for i, val in enumerate(comparision):
 #         if val == False:
 #             print("CustomTF:\t", custom_output[i], "\tTFLite:\t", tflite_output[i])
+
+plt.show()

@@ -40,16 +40,13 @@ def output_stats(
 
     if ax is not None:
 
-        hist, bins = np.histogram(err_rel, bins=50)
-        width = 0.7 * (bins[1] - bins[0])
-        center = (bins[:-1] + bins[1:]) / 2
-        ax.bar(center, hist, align="center", width=width)
+        ax.hist(err_rel, align="mid", bins=50, rwidth=0.8)
         ax.set_xlabel("Error amount")
         ax.set_ylabel("Number of outupts")
         ax.set_title(f"{test_name}")
         if "2" in test_name:
             plt.figure()
-            plt.bar(center, hist, align="center", width=width)
+            plt.hist(err_rel, align="mid", bins=50, rwidth=0.9)
             plt.xlabel("Relative Error")
             plt.ylabel("Number of outupts")
             plt.title(f"{test_name}")
