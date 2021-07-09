@@ -139,15 +139,15 @@ for regular_layer, custom_layer in zip(base_model.layers, custom_model.layers):
     for i, j in zip(regular_layer.get_weights(), custom_layer.get_weights()):
         assert np.array_equal(i, j)
 
-_, base_model_accuracy = base_model.evaluate(test_images, test_labels, verbose=0)
-_, custom_model_accuracy = custom_model.evaluate(test_images, test_labels, verbose=0)
-tflite_model_accuracy = tflite_runner.evaluate_tflite_model(
-    tflite_model, test_images, test_labels
-)
+# _, base_model_accuracy = base_model.evaluate(test_images, test_labels, verbose=0)
+# _, custom_model_accuracy = custom_model.evaluate(test_images, test_labels, verbose=0)
+# tflite_model_accuracy = tflite_runner.evaluate_tflite_model(
+#     tflite_model, test_images, test_labels
+# )
 
-print("Base test accuracy:", base_model_accuracy)
-print("Custom test accuracy:", custom_model_accuracy)
-print("TFLite test_accuracy:", tflite_model_accuracy)
+# print("Base test accuracy:", base_model_accuracy)
+# print("Custom test accuracy:", custom_model_accuracy)
+# print("TFLite test_accuracy:", tflite_model_accuracy)
 
 # index is 0->4 (Flatten,Dense,Dense,Dense,Dense)
 extractor = keras.Model(
@@ -160,6 +160,7 @@ def run_intermeidate_outputs(lower_limit, upper_limit):
     if lower_limit == upper_limit:
         # Expand first dimension to account for batch size when running single image
         imgs = np.expand_dims(test_images[lower_limit], axis=0).astype(np.float32)
+        assert imgs.shape == (1, 28, 28)
     extractor_output = extractor(imgs)
     extractor_tflite_outputs = tflite_runner.collect_intermediate_outputs(
         tflite_model, imgs
@@ -198,10 +199,17 @@ def binary_search(imgs, low, high, relative_error_target):
 # if result != -1:
 #     print("Index: ", result)
 
+print("Reminder: layer 2's output is layer 3's input")
+custom_model.layers[1].debug = True  # to print only the next iteration's info
 custom_model.layers[2].debug = True  # to print only the next iteration's info
+custom_model.layers[3].debug = True  # to print only the next iteration's info
+custom_model.layers[4].debug = True  # to print only the next iteration's info
 # lists of tf.Tensors. 1 element for each layer
 extractor_output, extractor_tflite_outputs = run_intermeidate_outputs(9070, 9070)
+custom_model.layers[1].debug = False
 custom_model.layers[2].debug = False
+custom_model.layers[3].debug = False
+custom_model.layers[4].debug = False
 
 fig, axs = plt.subplots(1, 5)
 for idx, (intermediate_output, intermediate_tflite_output) in enumerate(
@@ -209,27 +217,29 @@ for idx, (intermediate_output, intermediate_tflite_output) in enumerate(
 ):
     custom_output = intermediate_output.numpy().flatten()
     tflite_output = intermediate_tflite_output.numpy().flatten()
-    utils.output_stats(
-        custom_output,
-        tflite_output,
-        f"Layer {idx}",
-        1e-2,
-        SEED,
-        axs[idx],
-    )
+    if idx != 0:
+        tf.print(f"TFLite Dense Layer{idx}'s int8 output: ", tflite_output)
+    # utils.output_stats(
+    #     custom_output,
+    #     tflite_output,
+    #     f"Layer {idx}",
+    #     1e-2,
+    #     SEED,
+    #     axs[idx],
+    # )
 
 # Run test dataset on models
-base_output: np.ndarray = base_model.predict(test_images)
-custom_output: np.ndarray = custom_model.predict(test_images)
-tflite_output = tflite_runner.run_tflite_model(tflite_model, test_images)
-base_output = base_output.flatten()
-custom_output = custom_output.flatten()
-tflite_output = tflite_output.flatten()
+# base_output: np.ndarray = base_model.predict(test_images)
+# custom_output: np.ndarray = custom_model.predict(test_images)
+# tflite_output = tflite_runner.run_tflite_model(tflite_model, test_images)
+# base_output = base_output.flatten()
+# custom_output = custom_output.flatten()
+# tflite_output = tflite_output.flatten()
 
-# Check that Custom model is closer to tflite, than base model
-utils.output_stats(
-    custom_output, tflite_output, "Custom vs TFLite - Overall", 1e-2, SEED
-)
+# # Check that Custom model is closer to tflite, than base model
+# utils.output_stats(
+#     custom_output, tflite_output, "Custom vs TFLite - Overall", 1e-2, SEED
+# )
 
 # comparision = np.isclose(custom_output, tflite_output, rtol=0, atol=1e-2)
 # if np.count_nonzero(~comparision) != 0:
@@ -238,4 +248,4 @@ utils.output_stats(
 #         if val == False:
 #             print("CustomTF:\t", custom_output[i], "\tTFLite:\t", tflite_output[i])
 
-plt.show()
+# plt.show()

@@ -82,73 +82,6 @@ class Dense(keras.layers.Layer):
         return y
 
 
-class DenseFakeQuant(Dense):
-    """Densely-connected NN layer, with Fake Quantization.
-
-    Implements the operation:
-    `output = activation(dot(input, kernel) + bias)`
-    where `activation` is the element-wise activation function
-    passed as the `activation` argument, `kernel` is a weights matrix
-    created by the layer, and `bias` is a bias vector created by the layer.
-
-    Args:
-      units: Positive integer, dimensionality of the output space.
-      activation: Activation function to use.
-        If you don't specify anything, no activation is applied
-        (ie. "linear" activation: `a(x) = x`).
-
-    Input shape:
-      2D tensor with shape `(batch_size, input_dim)`,
-    Output shape:
-      2D tensor with shape: `(batch_size, units)`.
-    """
-
-    def __init__(
-        self,
-        units: int,
-        activation=None,
-        **kwargs,
-    ):
-        super().__init__(units, activation, **kwargs)
-
-    def quant_and_dequant(self, x: tf.Tensor, bits=8) -> tf.Tensor:
-        # unused_val = 0
-        # return tf.quantization.quantize_and_dequantize_v2(
-        #     x, unused_val, unused_val, num_bits=bits, range_given=False
-        # )
-
-        # Find min/max of inputs
-        batch_min = tf.math.reduce_min(x, name="BatchMin")
-        batch_max = tf.math.reduce_max(x, name="BatchMax")
-        # FakeQuantWithMinMaxVars requires that 0.0 is always in the [min; max] range.
-        range_min = tf.math.minimum(batch_min, 0.0)
-        range_max = tf.math.maximum(0.0, batch_max)
-
-        return tf.quantization.fake_quant_with_min_max_vars(x, range_min, range_max)
-
-    def call(self, inputs: tf.Tensor):
-        assert inputs.shape.rank in (2, None)
-
-        # FakeQuant inputs, kernel, and bias
-        fq_inputs = self.quant_and_dequant(inputs)
-        fq_kernel = self.quant_and_dequant(self.kernel)
-        # fq bias to 32 bits as tflite does
-        fq_bias = self.quant_and_dequant(self.bias, 32)
-
-        # Use regular matmul
-        y = tf.matmul(fq_inputs, fq_kernel)
-        y = self.quant_and_dequant(y)
-
-        # Use regular addition
-        y = tf.nn.bias_add(y, fq_bias)
-        y = self.quant_and_dequant(y)
-
-        if self.activation is not None:
-            y = self.activation(y)
-        y = self.quant_and_dequant(y)
-        return y
-
-
 def quant_from_tflite_params(
     x_fp32: tf.Tensor, scale: float, zero_point: int, dtype=tf.int8
 ) -> tf.Tensor:
@@ -178,7 +111,6 @@ def fake_quant(
     zero_point: int,
     bits=8,
     narrow=False,
-    symmetric=False,
     min_spec=-128,
 ) -> tf.Tensor:
     """FakeQuantize a tensor using built-in tf functions and parameters from a tflite model.
@@ -189,16 +121,11 @@ def fake_quant(
       zero_point: `zero-point` quantization parameter, from tflite
       bits: bitwidth of the quantization; between 2 and 16, inclusive
       narrow: bool; narrow_range arg of fake_quant_with_min_max_vars
-      symmetric: Whether to symmetrically quantize the tensor (i.e. should min=-max?)
       min_spec: 'min' value of the range of the quantized tensor, as defined in tflite's quantization spec
     """
     # Calculate min/max from tflite params
     min = (min_spec - zero_point) * scale
     max = (127 - zero_point) * scale
-    if symmetric and narrow:
-        # Based on the AllValuesQuantize here https://git.io/Jc9v9
-        min = tf.math.minimum(min, max * -1)
-        max = tf.math.maximum(max, min * -1)
     # FakeQuantWithMinMaxVars requires that 0.0 is always in the [min; max] range.
     range_min = tf.math.minimum(min, 0.0)
     range_max = tf.math.maximum(0.0, max)
@@ -385,14 +312,26 @@ class DenseTFLite(Dense):
             )
             # Use regular matmul and addition
             y: tf.Tensor = tf.matmul(fq_input, fq_kernel)
-            if self.debug:
-                tf.print(y)
 
             y = tf.nn.bias_add(y, dequant_bias)
             if self.activation is not None:
                 y = self.activation(y)
+
             # FakeQuant the outputs to account for loss of information when quantizing
             # This is redundant on all layers except the final output layer
             # I've left it in for now to make it easier to compare this layer's intermediate outputs with the tflite model
             y = fake_quant(y, self.output_scale, self.output_zp)
+
+            if self.debug:
+                # try with my own inputs, and compare to supposed tflite output
+                # inps = tf.round(tf.linspace(-128, 127, 10))
+                layer_num = (int(self.name[-1]) + 1) if self.name[-1] != "e" else 1
+                tf.print(
+                    f"Custom Dense Layer {layer_num}'s int8 output:",
+                    quant_from_tflite_params(
+                        y, self.output_scale, self.output_zp, tf.int8
+                    ),
+                    summarize=-1,
+                )
+                # TODO compare quantized inputs to tflite's appropriate tensor.
             return y

@@ -1,10 +1,16 @@
 import os
+from pathlib import Path
 
 import numpy as np
 import tensorflow as tf
 
 
 def create_tflite_model(train_images, keras_model, model_path):
+    if Path(model_path).exists():
+        with open(model_path, "rb") as f:
+            tflite_model = f.read()
+        return tflite_model
+
     def representative_dataset():
         # Use the same inputs as what QAT model saw for calibration
         for data in (
@@ -109,7 +115,9 @@ def collect_intermediate_outputs(tflite_model, images_dataset):
 
         # Pre-processing: add batch dimension and convert to datatype to match with
         # the model's input data format.
+        assert img.shape == (28, 28)
         img = np.expand_dims(img, axis=0).astype(input_details["dtype"])
+        assert img.shape == (1, 28, 28)
         interpreter.set_tensor(input_details["index"], img)
 
         # Run inference.
@@ -122,7 +130,7 @@ def collect_intermediate_outputs(tflite_model, images_dataset):
         for i in range(10, 15):
             layer_output = interpreter.get_tensor(i)[0]
             scale, zp = tensor_details[i]["quantization"]
-            layer_output = (layer_output.astype(np.float32) - zp) * scale
+            # layer_output = (layer_output.astype(np.float32) - zp) * scale
             outputs[i - 10].append(layer_output)
 
     return [tf.convert_to_tensor(np.array(layer_outputs)) for layer_outputs in outputs]
