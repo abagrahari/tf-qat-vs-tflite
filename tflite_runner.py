@@ -38,7 +38,12 @@ def create_tflite_model(train_images, keras_model, model_path):
 
 
 def get_interpreter(tflite_model):
-    interpreter = tf.lite.Interpreter(model_content=tflite_model)
+    interpreter = tf.lite.Interpreter(
+        model_content=tflite_model,
+        experimental_preserve_all_tensors=True
+        # experimental_preserve_all_tensors=True to be able to look at
+        # intermediate outputs
+    )
     interpreter.allocate_tensors()
     """Helper function to setup the tflite interpreter using the TF Lite model."""
     # https://www.tensorflow.org/lite/guide/inference#load_and_run_a_model_in_python
@@ -46,8 +51,7 @@ def get_interpreter(tflite_model):
 
 
 def run_tflite_model(tflite_model, images_dataset):
-    interpreter = tf.lite.Interpreter(model_content=tflite_model)
-    interpreter.allocate_tensors()
+    interpreter = get_interpreter(tflite_model)
     """Helper function to return outputs on supplied dataset using the TF Lite model."""
     # https://www.tensorflow.org/lite/guide/inference#load_and_run_a_model_in_python
     input_details = interpreter.get_input_details()[0]
@@ -90,8 +94,7 @@ def run_tflite_model(tflite_model, images_dataset):
 
 
 def collect_intermediate_outputs(tflite_model, images_dataset):
-    interpreter = tf.lite.Interpreter(model_content=tflite_model)
-    interpreter.allocate_tensors()
+    interpreter = get_interpreter(tflite_model)
     """Helper function to return intermediate outputs on supplied dataset using the TF Lite model."""
     # https://www.tensorflow.org/lite/guide/inference#load_and_run_a_model_in_python
     input_details = interpreter.get_input_details()[0]
