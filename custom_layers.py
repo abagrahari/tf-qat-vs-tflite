@@ -235,21 +235,19 @@ class DenseTFLite(Dense):
         self.kernel_tflite = kernel_tflite
         self.bias_tflite = bias_tflite
         self.mode = "FakeQuant"
-        self.debug = False  # For debugging overflow issues in layer
+        self.print_int8_layer_outputs = (
+            False  # For debugging issues in quantization of layer
+        )
 
     def call(self, inputs: tf.Tensor):
 
         # Verify that kernel and bias are quantizing correctly
+
+        # Verify quantized kernel matches int8 kernel from tflite
         quant_kernel = quant_from_tflite_params(
             self.kernel, self.kernel_scale, self.kernel_zp, tf.int8
         )
-        quant_bias = quant_from_tflite_params(
-            self.bias, self.bias_scale, self.bias_zp, tf.int32
-        )
-        # Verify quantized kernel matches int8 kernel from tflite
         tf.debugging.assert_equal(quant_kernel, self.kernel_tflite)
-        # Verify quantized bias matches int32 bias from tflite
-        tf.debugging.assert_equal(quant_bias, self.bias_tflite)
         # Verify that quantizing the FakeQuantized kernel matches int8 kernel from tflite
         fq_kernel = fake_quant(
             self.kernel,
@@ -260,6 +258,12 @@ class DenseTFLite(Dense):
             fq_kernel, self.kernel_scale, self.kernel_zp, tf.int8
         )
         tf.debugging.assert_equal(quant_kernel, self.kernel_tflite)
+
+        # Verify quantized bias matches int32 bias from tflite
+        quant_bias = quant_from_tflite_params(
+            self.bias, self.bias_scale, self.bias_zp, tf.int32
+        )
+        tf.debugging.assert_equal(quant_bias, self.bias_tflite)
 
         # the formula in ./tflite_formula_derivation.pdf is i.e. quant+dequant before using the values
         if self.mode == "DequantQuant":
@@ -322,9 +326,7 @@ class DenseTFLite(Dense):
             # I've left it in for now to make it easier to compare this layer's intermediate outputs with the tflite model
             y = fake_quant(y, self.output_scale, self.output_zp)
 
-            if self.debug:
-                # try with my own inputs, and compare to supposed tflite output
-                # inps = tf.round(tf.linspace(-128, 127, 10))
+            if self.print_int8_layer_outputs:
                 layer_num = (int(self.name[-1]) + 1) if self.name[-1] != "e" else 1
                 tf.print(
                     f"Custom Dense Layer {layer_num}'s int8 output:",
@@ -333,5 +335,4 @@ class DenseTFLite(Dense):
                     ),
                     summarize=-1,
                 )
-                # TODO compare quantized inputs to tflite's appropriate tensor.
             return y

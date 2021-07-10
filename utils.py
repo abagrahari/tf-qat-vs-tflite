@@ -39,17 +39,10 @@ def output_stats(
     err_rel = err_rel[np.isfinite(err_rel)]
 
     if ax is not None:
-
         ax.hist(err_rel, align="mid", bins=50, rwidth=0.8)
-        ax.set_xlabel("Error amount")
+        ax.set_xlabel("Relative Error")
         ax.set_ylabel("Number of outupts")
         ax.set_title(f"{test_name}")
-        if "2" in test_name:
-            plt.figure()
-            plt.hist(err_rel, align="mid", bins=50, rwidth=0.9)
-            plt.xlabel("Relative Error")
-            plt.ylabel("Number of outupts")
-            plt.title(f"{test_name}")
 
     print(f"--------------------- {test_name.upper()} ---------------------")
     print(f"TestStatus: {status}; Tolerance: {tol}; Seed: {seed}")

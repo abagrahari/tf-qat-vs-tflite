@@ -133,7 +133,7 @@ def collect_intermediate_outputs(tflite_model, images_dataset):
         for i in range(10, 15):
             layer_output = interpreter.get_tensor(i)[0]
             scale, zp = tensor_details[i]["quantization"]
-            # layer_output = (layer_output.astype(np.float32) - zp) * scale
+            layer_output = (layer_output.astype(np.float32) - zp) * scale
             outputs[i - 10].append(layer_output)
 
     return [tf.convert_to_tensor(np.array(layer_outputs)) for layer_outputs in outputs]
