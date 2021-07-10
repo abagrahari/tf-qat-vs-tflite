@@ -30,7 +30,9 @@ tflite_model = tflite_runner.create_tflite_model(None, None, saved_path)
 img = test_images[9070]
 
 
-interpreter = tf.lite.Interpreter(model_content=tflite_model)
+interpreter = tf.lite.Interpreter(
+    model_content=tflite_model, experimental_preserve_all_tensors=True
+)
 interpreter.allocate_tensors()
 
 tensor_details = interpreter.get_tensor_details()
@@ -51,4 +53,10 @@ tf.print("Dense layer 1 output", interpreter.get_tensor(11))
 tf.print("Dense layer 2 output", interpreter.get_tensor(12))
 tf.print("Dense layer 3 output", interpreter.get_tensor(13))
 tf.print("Dense layer 4 output", interpreter.get_tensor(14))
-# TODO: why is layer 2 output == layer 4 output (tensor 12 == tensor 14)??
+assert not np.array_equal(
+    interpreter.get_tensor(12).flatten(),
+    interpreter.get_tensor(14).flatten(),
+)
+# why is layer 2 output == layer 4 output (tensor 12 == tensor 14)?
+# Because get_tensor cannot be used to get intermediate results (non-output layers)!
+# To solve, must use experimental_preserve_all_tensors=True in tflite interpreter constructor
