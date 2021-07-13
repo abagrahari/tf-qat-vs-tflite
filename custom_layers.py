@@ -105,6 +105,20 @@ def dequant_from_tflite_params(
     return (tf.cast(x_int8, tf.float32) - zero_point) * scale
 
 
+def calculate_min_max_from_tflite(
+    scale: float,
+    zero_point: int,
+    min_spec=-128,
+):
+    # Calculate min/max from tflite params
+    min = (min_spec - zero_point) * scale
+    max = (127 - zero_point) * scale
+    # FakeQuantWithMinMaxVars requires that 0.0 is always in the [min; max] range.
+    range_min = tf.math.minimum(min, 0.0)
+    range_max = tf.math.maximum(0.0, max)
+    return range_min, range_max
+
+
 def fake_quant(
     x: tf.Tensor,
     scale: float,
@@ -123,12 +137,7 @@ def fake_quant(
       narrow: bool; narrow_range arg of fake_quant_with_min_max_vars
       min_spec: 'min' value of the range of the quantized tensor, as defined in tflite's quantization spec
     """
-    # Calculate min/max from tflite params
-    min = (min_spec - zero_point) * scale
-    max = (127 - zero_point) * scale
-    # FakeQuantWithMinMaxVars requires that 0.0 is always in the [min; max] range.
-    range_min = tf.math.minimum(min, 0.0)
-    range_max = tf.math.maximum(0.0, max)
+    range_min, range_max = calculate_min_max_from_tflite(scale, zero_point, min_spec)
     return tf.quantization.fake_quant_with_min_max_vars(
         x, range_min, range_max, num_bits=bits, narrow_range=narrow
     )
