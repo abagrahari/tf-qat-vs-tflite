@@ -21,6 +21,7 @@ class Dense(keras.layers.Layer):
       activation: Activation function to use.
         If you don't specify anything, no activation is applied
         (ie. "linear" activation: `a(x) = x`).
+      use_bias: Boolean, whether the layer uses a bias vector.
 
     Input shape:
       2D tensor with shape `(batch_size, input_dim)`,
@@ -32,6 +33,7 @@ class Dense(keras.layers.Layer):
         self,
         units: int,
         activation=None,
+        use_bias=True,
         **kwargs,
     ):
 
@@ -39,6 +41,7 @@ class Dense(keras.layers.Layer):
 
         self.units = units
         self.activation = activations.get(activation)
+        self.use_bias = use_bias
 
     def build(self, input_shape):
         # Lazily create and init weights and biases, since shape of input tensor is now known
@@ -55,17 +58,21 @@ class Dense(keras.layers.Layer):
             dtype=self.dtype,
             trainable=True,
         )
-        # bias vector
-        self.bias = self.add_weight(
-            "bias",
-            shape=[
-                self.units,
-            ],
-            initializer=initializers.get("zeros"),  # for bias vector
-            dtype=self.dtype,
-            trainable=True,
-            # vector of size (units,)
-        )
+        if self.use_bias:
+            # bias vector
+            self.bias = self.add_weight(
+                "bias",
+                shape=[
+                    self.units,
+                ],
+                initializer=initializers.get("zeros"),  # for bias vector
+                dtype=self.dtype,
+                trainable=True,
+                # vector of size (units,)
+            )
+        else:
+            self.bias = None
+        self.built = True
 
     def call(self, inputs):
         # Perform layer's computation, in the forward pass.
@@ -74,8 +81,8 @@ class Dense(keras.layers.Layer):
 
         assert inputs.shape.rank in (2, None)
         y = tf.matmul(inputs, self.kernel)
-
-        y = tf.nn.bias_add(y, self.bias)
+        if self.use_bias:
+            y = tf.nn.bias_add(y, self.bias)
 
         if self.activation is not None:
             y = self.activation(y)
@@ -199,6 +206,7 @@ class DenseTFLite(Dense):
       activation: Activation function to use.
         If you don't specify anything, no activation is applied
         (ie. "linear" activation: `a(x) = x`).
+      use_bias: Boolean, whether the layer uses a bias vector.
       input_scale: `scale` quantization parameter for the input
       input_zp: `zero-point` quantization parameter for the input
       kernel_scale: `scale` quantization parameter for the weights
@@ -218,6 +226,7 @@ class DenseTFLite(Dense):
         self,
         units: int,
         activation=None,
+        use_bias=True,
         input_scale=1,
         input_zp=0,
         kernel_scale=1,
@@ -230,7 +239,7 @@ class DenseTFLite(Dense):
         bias_tflite=None,
         **kwargs,
     ):
-        super().__init__(units, activation, **kwargs)
+        super().__init__(units, activation, use_bias, **kwargs)
 
         self.input_scale = input_scale
         self.input_zp = input_zp
@@ -268,44 +277,13 @@ class DenseTFLite(Dense):
         )
         tf.debugging.assert_equal(quant_kernel, self.kernel_tflite)
 
-        # Verify quantized bias matches int32 bias from tflite
-        quant_bias = quant_from_tflite_params(
-            self.bias, self.bias_scale, self.bias_zp, tf.int32
-        )
-        tf.debugging.assert_equal(quant_bias, self.bias_tflite)
-
-        # the formula in ./tflite_formula_derivation.pdf is i.e. quant+dequant before using the values
-        if self.mode == "DequantQuant":
-            # quantize using scale and zero_point
-            quant_input = quant_from_tflite_params(
-                inputs, self.input_scale, self.input_zp, tf.int8
-            )
-            quant_kernel = quant_from_tflite_params(
-                self.kernel, self.kernel_scale, self.kernel_zp, tf.int8
-            )
+        if self.use_bias:
+            # Verify quantized bias matches int32 bias from tflite
             quant_bias = quant_from_tflite_params(
                 self.bias, self.bias_scale, self.bias_zp, tf.int32
             )
-            dequant_input = dequant_from_tflite_params(
-                quant_input, self.input_scale, self.input_zp
-            )
-            dequant_kernel = dequant_from_tflite_params(
-                quant_kernel, self.kernel_scale, self.kernel_zp
-            )
-            dequant_bias = dequant_from_tflite_params(
-                quant_bias, self.bias_scale, self.bias_zp
-            )
-            # Use regular matmul and addition
-            y: tf.Tensor = tf.matmul(dequant_input, dequant_kernel)
-            y = tf.nn.bias_add(y, dequant_bias)
-            if self.activation is not None:
-                y = self.activation(y)
-            # quantize and dequantize the outputs to account for loss of information when quantizing
-            # This is redundant on all layers except the final output layer
-            # I've left it in for now to make it easier to compare this layer's intermediate outputs with the tflite model
-            y = quant_from_tflite_params(y, self.output_scale, self.output_zp)
-            y = dequant_from_tflite_params(y, self.output_scale, self.output_zp)
-            return y
+            tf.debugging.assert_equal(quant_bias, self.bias_tflite)
+
         if self.mode == "FakeQuant":
             # https://www.tensorflow.org/lite/performance/quantization_spec#int8_quantized_operator_specifications
             fq_input = fake_quant(inputs, self.input_scale, self.input_zp)
@@ -316,17 +294,18 @@ class DenseTFLite(Dense):
                 # narrow=True,  # tflite spec says it uses narrow_range for weights, with below value
                 # min_spec=-127,
             )
-            # fake_quant_with_min_max_vars does not quantize to 32 bits
-            quant_bias = quant_from_tflite_params(
-                self.bias, self.bias_scale, self.bias_zp, tf.int32
-            )
-            dequant_bias = dequant_from_tflite_params(
-                quant_bias, self.bias_scale, self.bias_zp
-            )
             # Use regular matmul and addition
             y: tf.Tensor = tf.matmul(fq_input, fq_kernel)
 
-            y = tf.nn.bias_add(y, dequant_bias)
+            if self.use_bias:
+                # fake_quant_with_min_max_vars does not quantize to 32 bits
+                quant_bias = quant_from_tflite_params(
+                    self.bias, self.bias_scale, self.bias_zp, tf.int32
+                )
+                dequant_bias = dequant_from_tflite_params(
+                    quant_bias, self.bias_scale, self.bias_zp
+                )
+                y = tf.nn.bias_add(y, dequant_bias)
             if self.activation is not None:
                 y = self.activation(y)
 

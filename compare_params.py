@@ -21,23 +21,29 @@ from custom_layers import calculate_min_max_from_tflite
 parser = argparse.ArgumentParser()
 
 parser.add_argument("--seed", help="seed for tf.random", type=int, default=0)
+parser.add_argument("--no-bias", help="seed for tf.random", action="store_false")
 args = parser.parse_args()
 
 SEED: int = args.seed
+USE_BIAS: bool = args.no_bias  # Defaults to true
+
+utils.remove_path("saved_models")
+utils.remove_path("saved_weights")
+
 tf.random.set_seed(SEED)
+np.random.seed(SEED)
 
 # Load MNIST dataset
 (train_images, train_labels), (test_images, test_labels) = utils.load_mnist()
 
-saved_weights_path = f"saved_weights/3compare_{SEED}"
 
 base_model = keras.Sequential(
     [
         keras.layers.Flatten(input_shape=(28, 28)),
-        keras.layers.Dense(10),
-        keras.layers.Dense(10),
-        keras.layers.Dense(10),
-        keras.layers.Dense(10),
+        keras.layers.Dense(10, use_bias=USE_BIAS),
+        keras.layers.Dense(10, use_bias=USE_BIAS),
+        keras.layers.Dense(10, use_bias=USE_BIAS),
+        keras.layers.Dense(10, use_bias=USE_BIAS),
     ]
 )
 base_model.compile(
@@ -121,42 +127,73 @@ interpreter = tflite_runner.get_interpreter(tflite_model)
 tensor_details = interpreter.get_tensor_details()
 
 tflite_params = [{}, {}, {}, {}, {}]
-tflite_params[0]["input_scale"] = tensor_details[0]["quantization"][0]
-tflite_params[0]["input_zp"] = tensor_details[0]["quantization"][1]
-tflite_params[0]["output_scale"] = tensor_details[10]["quantization"][0]
-tflite_params[0]["output_zp"] = tensor_details[10]["quantization"][1]
-tflite_params[1]["input_scale"] = tensor_details[10]["quantization"][0]
-tflite_params[1]["input_zp"] = tensor_details[10]["quantization"][1]
-tflite_params[1]["kernel_scale"] = tensor_details[2]["quantization"][0]
-tflite_params[1]["kernel_zp"] = tensor_details[2]["quantization"][1]
-tflite_params[1]["bias_scale"] = tensor_details[3]["quantization"][0]
-tflite_params[1]["bias_zp"] = tensor_details[3]["quantization"][1]
-tflite_params[1]["output_scale"] = tensor_details[11]["quantization"][0]
-tflite_params[1]["output_zp"] = tensor_details[11]["quantization"][1]
-tflite_params[2]["input_scale"] = tensor_details[11]["quantization"][0]
-tflite_params[2]["input_zp"] = tensor_details[11]["quantization"][1]
-tflite_params[2]["kernel_scale"] = tensor_details[4]["quantization"][0]
-tflite_params[2]["kernel_zp"] = tensor_details[4]["quantization"][1]
-tflite_params[2]["bias_scale"] = tensor_details[5]["quantization"][0]
-tflite_params[2]["bias_zp"] = tensor_details[5]["quantization"][1]
-tflite_params[2]["output_scale"] = tensor_details[12]["quantization"][0]
-tflite_params[2]["output_zp"] = tensor_details[12]["quantization"][1]
-tflite_params[3]["input_scale"] = tensor_details[12]["quantization"][0]
-tflite_params[3]["input_zp"] = tensor_details[12]["quantization"][1]
-tflite_params[3]["kernel_scale"] = tensor_details[6]["quantization"][0]
-tflite_params[3]["kernel_zp"] = tensor_details[6]["quantization"][1]
-tflite_params[3]["bias_scale"] = tensor_details[7]["quantization"][0]
-tflite_params[3]["bias_zp"] = tensor_details[7]["quantization"][1]
-tflite_params[3]["output_scale"] = tensor_details[13]["quantization"][0]
-tflite_params[3]["output_zp"] = tensor_details[13]["quantization"][1]
-tflite_params[4]["input_scale"] = tensor_details[13]["quantization"][0]
-tflite_params[4]["input_zp"] = tensor_details[13]["quantization"][1]
-tflite_params[4]["kernel_scale"] = tensor_details[8]["quantization"][0]
-tflite_params[4]["kernel_zp"] = tensor_details[8]["quantization"][1]
-tflite_params[4]["bias_scale"] = tensor_details[9]["quantization"][0]
-tflite_params[4]["bias_zp"] = tensor_details[9]["quantization"][1]
-tflite_params[4]["output_scale"] = tensor_details[14]["quantization"][0]
-tflite_params[4]["output_zp"] = tensor_details[14]["quantization"][1]
+if USE_BIAS:
+    tflite_params[0]["input_scale"] = tensor_details[0]["quantization"][0]
+    tflite_params[0]["input_zp"] = tensor_details[0]["quantization"][1]
+    tflite_params[0]["output_scale"] = tensor_details[10]["quantization"][0]
+    tflite_params[0]["output_zp"] = tensor_details[10]["quantization"][1]
+    tflite_params[1]["input_scale"] = tensor_details[10]["quantization"][0]
+    tflite_params[1]["input_zp"] = tensor_details[10]["quantization"][1]
+    tflite_params[1]["kernel_scale"] = tensor_details[2]["quantization"][0]
+    tflite_params[1]["kernel_zp"] = tensor_details[2]["quantization"][1]
+    tflite_params[1]["bias_scale"] = tensor_details[3]["quantization"][0]
+    tflite_params[1]["bias_zp"] = tensor_details[3]["quantization"][1]
+    tflite_params[1]["output_scale"] = tensor_details[11]["quantization"][0]
+    tflite_params[1]["output_zp"] = tensor_details[11]["quantization"][1]
+    tflite_params[2]["input_scale"] = tensor_details[11]["quantization"][0]
+    tflite_params[2]["input_zp"] = tensor_details[11]["quantization"][1]
+    tflite_params[2]["kernel_scale"] = tensor_details[4]["quantization"][0]
+    tflite_params[2]["kernel_zp"] = tensor_details[4]["quantization"][1]
+    tflite_params[2]["bias_scale"] = tensor_details[5]["quantization"][0]
+    tflite_params[2]["bias_zp"] = tensor_details[5]["quantization"][1]
+    tflite_params[2]["output_scale"] = tensor_details[12]["quantization"][0]
+    tflite_params[2]["output_zp"] = tensor_details[12]["quantization"][1]
+    tflite_params[3]["input_scale"] = tensor_details[12]["quantization"][0]
+    tflite_params[3]["input_zp"] = tensor_details[12]["quantization"][1]
+    tflite_params[3]["kernel_scale"] = tensor_details[6]["quantization"][0]
+    tflite_params[3]["kernel_zp"] = tensor_details[6]["quantization"][1]
+    tflite_params[3]["bias_scale"] = tensor_details[7]["quantization"][0]
+    tflite_params[3]["bias_zp"] = tensor_details[7]["quantization"][1]
+    tflite_params[3]["output_scale"] = tensor_details[13]["quantization"][0]
+    tflite_params[3]["output_zp"] = tensor_details[13]["quantization"][1]
+    tflite_params[4]["input_scale"] = tensor_details[13]["quantization"][0]
+    tflite_params[4]["input_zp"] = tensor_details[13]["quantization"][1]
+    tflite_params[4]["kernel_scale"] = tensor_details[8]["quantization"][0]
+    tflite_params[4]["kernel_zp"] = tensor_details[8]["quantization"][1]
+    tflite_params[4]["bias_scale"] = tensor_details[9]["quantization"][0]
+    tflite_params[4]["bias_zp"] = tensor_details[9]["quantization"][1]
+    tflite_params[4]["output_scale"] = tensor_details[14]["quantization"][0]
+    tflite_params[4]["output_zp"] = tensor_details[14]["quantization"][1]
+else:
+    # Numbering of tensors is different than above
+    tflite_params[0]["input_scale"] = tensor_details[0]["quantization"][0]
+    tflite_params[0]["input_zp"] = tensor_details[0]["quantization"][1]
+    tflite_params[0]["output_scale"] = tensor_details[6]["quantization"][0]
+    tflite_params[0]["output_zp"] = tensor_details[6]["quantization"][1]
+    tflite_params[1]["input_scale"] = tensor_details[6]["quantization"][0]
+    tflite_params[1]["input_zp"] = tensor_details[6]["quantization"][1]
+    tflite_params[1]["kernel_scale"] = tensor_details[2]["quantization"][0]
+    tflite_params[1]["kernel_zp"] = tensor_details[2]["quantization"][1]
+    tflite_params[1]["output_scale"] = tensor_details[7]["quantization"][0]
+    tflite_params[1]["output_zp"] = tensor_details[7]["quantization"][1]
+    tflite_params[2]["input_scale"] = tensor_details[7]["quantization"][0]
+    tflite_params[2]["input_zp"] = tensor_details[7]["quantization"][1]
+    tflite_params[2]["kernel_scale"] = tensor_details[3]["quantization"][0]
+    tflite_params[2]["kernel_zp"] = tensor_details[3]["quantization"][1]
+    tflite_params[2]["output_scale"] = tensor_details[8]["quantization"][0]
+    tflite_params[2]["output_zp"] = tensor_details[8]["quantization"][1]
+    tflite_params[3]["input_scale"] = tensor_details[8]["quantization"][0]
+    tflite_params[3]["input_zp"] = tensor_details[8]["quantization"][1]
+    tflite_params[3]["kernel_scale"] = tensor_details[4]["quantization"][0]
+    tflite_params[3]["kernel_zp"] = tensor_details[4]["quantization"][1]
+    tflite_params[3]["output_scale"] = tensor_details[9]["quantization"][0]
+    tflite_params[3]["output_zp"] = tensor_details[9]["quantization"][1]
+    tflite_params[4]["input_scale"] = tensor_details[9]["quantization"][0]
+    tflite_params[4]["input_zp"] = tensor_details[9]["quantization"][1]
+    tflite_params[4]["kernel_scale"] = tensor_details[5]["quantization"][0]
+    tflite_params[4]["kernel_zp"] = tensor_details[5]["quantization"][1]
+    tflite_params[4]["output_scale"] = tensor_details[10]["quantization"][0]
+    tflite_params[4]["output_zp"] = tensor_details[10]["quantization"][1]
 
 # Print input quantization param
 print(
@@ -190,20 +227,20 @@ for i, layer in enumerate(tflite_params):
         param = f"{name}/{calc}_max"
         print(f"{param:35} {max.numpy():>15.6f}")
 
-
-print(
-    "\nParameters from tflite model, for quantization of bias calculated using our scale/zp --> min/max implementation. (QAT does not FakeQuant bias)"
-)
-for i, layer in enumerate(tflite_params):
-    if i == 0:
-        continue
-    name = ""
-    if i == 1:
-        name = "dense"
-    else:
-        name = f"dense_{i-1}"
-    min, max = calculate_min_max_from_tflite(layer["bias_scale"], layer["bias_zp"])
-    param = f"{name}/bias_min"
-    print(f"{param:35} {min.numpy():>15.6f}")
-    param = f"{name}/bias_max"
-    print(f"{param:35} {max.numpy():>15.6f}")
+if USE_BIAS:
+    print(
+        "\nParameters from tflite model, for quantization of bias calculated using our scale/zp --> min/max implementation. (QAT does not FakeQuant bias)"
+    )
+    for i, layer in enumerate(tflite_params):
+        if i == 0:
+            continue
+        name = ""
+        if i == 1:
+            name = "dense"
+        else:
+            name = f"dense_{i-1}"
+        min, max = calculate_min_max_from_tflite(layer["bias_scale"], layer["bias_zp"])
+        param = f"{name}/bias_min"
+        print(f"{param:35} {min.numpy():>15.6f}")
+        param = f"{name}/bias_max"
+        print(f"{param:35} {max.numpy():>15.6f}")

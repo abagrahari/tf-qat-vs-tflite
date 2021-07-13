@@ -1,10 +1,17 @@
 import csv
+import shutil
 import warnings
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
 from tensorflow import keras
+
+
+def remove_path(dirpath):
+    dirpath = Path(dirpath)
+    if dirpath.exists() and dirpath.is_dir():
+        shutil.rmtree(dirpath)
 
 
 def load_mnist():
