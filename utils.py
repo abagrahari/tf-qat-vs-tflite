@@ -14,6 +14,10 @@ def remove_path(dirpath):
         shutil.rmtree(dirpath)
 
 
+def print_formatted(param: str, value: float):
+    print(f"{param:35} {value:>15.6f}")
+
+
 def load_mnist():
     # Load MNIST dataset
     mnist = keras.datasets.mnist

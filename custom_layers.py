@@ -291,8 +291,8 @@ class DenseTFLite(Dense):
                 self.kernel,
                 self.kernel_scale,
                 self.kernel_zp,
-                # narrow=True,  # tflite spec says it uses narrow_range for weights, with below value
-                # min_spec=-127,
+                narrow=True,  # tflite spec says it uses narrow_range for weights, with below value
+                min_spec=-127,
             )
             # Use regular matmul and addition
             y: tf.Tensor = tf.matmul(fq_input, fq_kernel)

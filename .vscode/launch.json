@@ -27,6 +27,9 @@
             "request": "launch",
             "program": "${workspaceFolder}/compare_params.py",
             "console": "integratedTerminal",
+            "args": [
+                "--no-bias"
+            ]
         }
     ]
 }

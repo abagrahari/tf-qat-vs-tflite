@@ -222,14 +222,14 @@ for idx, (intermediate_output, intermediate_tflite_output) in enumerate(
 ):
     custom_output = intermediate_output.numpy().flatten()
     tflite_output = intermediate_tflite_output.numpy().flatten()
-    utils.output_stats(
-        custom_output,
-        tflite_output,
-        f"Layer {idx}",
-        1e-2,
-        SEED,
-        axs[idx],
-    )
+    # utils.output_stats(
+    #     custom_output,
+    #     tflite_output,
+    #     f"Layer {idx}",
+    #     1e-2,
+    #     SEED,
+    #     axs[idx],
+    # )
 
 # Run test dataset on models
 base_output: np.ndarray = base_model.predict(test_images)
@@ -251,4 +251,4 @@ utils.output_stats(
 #         if val == False:
 #             print("CustomTF:\t", custom_output[i], "\tTFLite:\t", tflite_output[i])
 
-plt.show()
+# plt.show()

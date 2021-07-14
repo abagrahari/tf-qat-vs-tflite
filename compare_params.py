@@ -16,10 +16,15 @@ from tensorflow_model_optimization.python.core.quantization.keras.default_8bit i
 
 import tflite_runner
 import utils
-from custom_layers import calculate_min_max_from_tflite
+from custom_layers import calculate_min_max_from_tflite, fake_quant
+
+# MonkeyPatch to use AllValuesQuantizer instead of moving average
+# to match behaviour of TFLite representative dataset quantization
+default_8bit_quantize_registry.quantizers.MovingAverageQuantizer = (
+    tfmot.quantization.keras.quantizers.AllValuesQuantizer
+)
 
 parser = argparse.ArgumentParser()
-
 parser.add_argument("--seed", help="seed for tf.random", type=int, default=0)
 parser.add_argument("--no-bias", help="seed for tf.random", action="store_false")
 args = parser.parse_args()
@@ -27,8 +32,8 @@ args = parser.parse_args()
 SEED: int = args.seed
 USE_BIAS: bool = args.no_bias  # Defaults to true
 
-utils.remove_path("saved_models")
-utils.remove_path("saved_weights")
+# utils.remove_path("saved_models")
+# utils.remove_path("saved_weights")
 
 tf.random.set_seed(SEED)
 np.random.seed(SEED)
@@ -64,12 +69,6 @@ else:
         saved_weights_path
     ).assert_existing_objects_matched().expect_partial()
 
-
-# MonkeyPatch to use AllValuesQuantizer instead of moving average
-# to match behaviour of TFLite representative dataset quantization
-default_8bit_quantize_registry.quantizers.MovingAverageQuantizer = (
-    tfmot.quantization.keras.quantizers.AllValuesQuantizer
-)
 
 qat_model = tfmot.quantization.keras.quantize_model(base_model)
 qat_model.compile(
@@ -120,7 +119,7 @@ print("\nNote: the `Dense2` layer is the third Dense layer")
 print("\nParameters directly from QAT model")
 for weight in qat_model.weights:
     if "min" in weight.name or "max" in weight.name:
-        print(f"{weight.name[:-2]:35} {weight.numpy():>15.6f}")
+        utils.print_formatted(weight.name[:-2], weight.numpy())
 
 
 interpreter = tflite_runner.get_interpreter(tflite_model)
@@ -203,10 +202,8 @@ print(
 min, max = calculate_min_max_from_tflite(
     tflite_params[0]["input_scale"], tflite_params[0]["input_zp"]
 )
-param = "flatten/input_layer_min"
-print(f"{param:35} {min.numpy():>15.6f}")
-param = "flatten/input_layer_max"
-print(f"{param:35} {max.numpy():>15.6f}")
+utils.print_formatted("flatten/input_layer_min", min.numpy())
+utils.print_formatted("flatten/input_layer_max", max.numpy())
 # Print model quantization param
 for i, layer in enumerate(tflite_params):
     if i == 0:
@@ -217,15 +214,14 @@ for i, layer in enumerate(tflite_params):
     else:
         name = f"dense_{i-1}"
     for calc in ["kernel", "output"]:
+        minspec = -127 if calc == "kernel" else -128
         min, max = calculate_min_max_from_tflite(
-            layer[f"{calc}_scale"], layer[f"{calc}_zp"]
+            layer[f"{calc}_scale"], layer[f"{calc}_zp"], min_spec=minspec
         )
         if calc == "output":
             calc = "post_activation"  # Match QAT print statement
-        param = f"{name}/{calc}_min"
-        print(f"{param:35} {min.numpy():>15.6f}")
-        param = f"{name}/{calc}_max"
-        print(f"{param:35} {max.numpy():>15.6f}")
+        utils.print_formatted(f"{name}/{calc}_min", min.numpy())
+        utils.print_formatted(f"{name}/{calc}_max", max.numpy())
 
 if USE_BIAS:
     print(
@@ -240,7 +236,48 @@ if USE_BIAS:
         else:
             name = f"dense_{i-1}"
         min, max = calculate_min_max_from_tflite(layer["bias_scale"], layer["bias_zp"])
-        param = f"{name}/bias_min"
-        print(f"{param:35} {min.numpy():>15.6f}")
-        param = f"{name}/bias_max"
-        print(f"{param:35} {max.numpy():>15.6f}")
+        utils.print_formatted(f"{name}/bias_min", min.numpy())
+        utils.print_formatted(f"{name}/bias_max", max.numpy())
+
+
+# Check which min/max is "correct". i.e. take all the mnist digits,
+# multiply them by the first dense weight matrix, and check the min/max of the output.
+# see if it matches tflite or qat (or neither)
+kernel = qat_model.weights[4]  # Get kernel from QAT model
+# FakeQuant kernel based on params from tflite model. (min/max is same in QAT model)
+fq_kernel = fake_quant(
+    kernel,
+    tflite_params[1]["kernel_scale"],
+    tflite_params[1]["kernel_zp"],
+    narrow=True,  # tflite spec says it uses narrow_range for weights, with below value
+    min_spec=-127,
+)
+
+outputs = []
+for image in train_images:
+    assert USE_BIAS == False
+    # Flatten image
+    image = tf.cast(tf.reshape(image, [-1, 784]), tf.float32)
+    assert image.shape == (1, 784)
+    # Quantize the input (tflite and QAT have same min/max params)
+    fq_input = fake_quant(
+        image, tflite_params[0]["input_scale"], tflite_params[0]["input_zp"]
+    )
+    y: tf.Tensor = tf.matmul(fq_input, fq_kernel)
+    assert y.shape == (1, 10)
+    # no bias adddition
+    # linear activation function
+
+    # Not fakeQuantizing outputs, in order to compare min/max params
+
+    outputs.append(y)
+
+outputs = np.array(outputs)
+
+# Print input quantization param
+print(
+    "\nParameters from manual checking (to check which of above is 'correct'). Compare below params against the respective QAT and tflite params"
+)
+
+utils.print_formatted("dense/post_activation_min", np.min(outputs))
+utils.print_formatted("dense/post_activation_max", np.max(outputs))
