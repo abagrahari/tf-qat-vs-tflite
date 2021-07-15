@@ -32,8 +32,8 @@ args = parser.parse_args()
 SEED: int = args.seed
 USE_BIAS: bool = args.no_bias  # Defaults to true
 
-# utils.remove_path("saved_models")
-# utils.remove_path("saved_weights")
+utils.remove_path("saved_models")
+utils.remove_path("saved_weights")
 
 tf.random.set_seed(SEED)
 np.random.seed(SEED)
@@ -80,11 +80,6 @@ qat_model.compile(
 # Manually calibrate QAT model
 qat_model(train_images, training=True)
 
-# Load weights to eliminate any possible changes from QAT
-base_model.load_weights(
-    saved_weights_path
-).assert_existing_objects_matched().expect_partial()
-
 # Create quantized model for TFLite from the base model
 tflite_model = tflite_runner.create_tflite_model(
     train_images, base_model, f"saved_models/param_compare_{SEED}.tflite"
@@ -103,17 +98,6 @@ print("Base test accuracy:", base_model_accuracy)
 print("QAT test accuracy:", qat_model_accuracy)
 print("TFLite test accuracy:", tflite_model_accuracy)
 
-# Run test dataset on models
-base_output: np.ndarray = base_model.predict(test_images)
-qat_output: np.ndarray = qat_model.predict(test_images)
-tflite_output = tflite_runner.run_tflite_model(tflite_model, test_images)
-
-base_output = base_output.flatten()
-qat_output = qat_output.flatten()
-tflite_output = tflite_output.flatten()
-
-# Determine if custom model is closer to tflite than QAT model:
-utils.output_stats(qat_output, tflite_output, "QAT vs Base TFLite", 1e-2, SEED)
 
 print("\nNote: the `Dense2` layer is the third Dense layer")
 print("\nParameters directly from QAT model")
@@ -204,7 +188,7 @@ min, max = calculate_min_max_from_tflite(
 )
 utils.print_formatted("flatten/input_layer_min", min.numpy())
 utils.print_formatted("flatten/input_layer_max", max.numpy())
-# Print model quantization param
+# Print tflite quantization params
 for i, layer in enumerate(tflite_params):
     if i == 0:
         continue
@@ -218,6 +202,15 @@ for i, layer in enumerate(tflite_params):
         min, max = calculate_min_max_from_tflite(
             layer[f"{calc}_scale"], layer[f"{calc}_zp"], min_spec=minspec
         )
+        if calc != "kernel":
+            # Verify that min/max was derived correctly from tflite params, by recalculating
+            # the scale param.
+            # Does not match up for kernel params, due to narrow_range used in kernel
+            # Below formula is from Section 3 in https://arxiv.org/pdf/1712.05877.pdf
+            qat_paper_scale = (max.numpy() - min.numpy()) / (2 ** 8 - 1)
+            assert np.allclose(
+                qat_paper_scale, layer[f"{calc}_scale"], rtol=0, atol=1e-4
+            )
         if calc == "output":
             calc = "post_activation"  # Match QAT print statement
         utils.print_formatted(f"{name}/{calc}_min", min.numpy())
