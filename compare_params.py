@@ -35,6 +35,14 @@ USE_BIAS: bool = args.no_bias  # Defaults to true
 tf.random.set_seed(SEED)
 np.random.seed(SEED)
 
+print("tensorflow", tf.__version__)
+os.system("pip list | grep tensorflow-model-optimization")
+print("# of GPUs Available:", len(tf.config.list_physical_devices("GPU")))
+check_zero = tf.quantization.fake_quant_with_min_max_vars(0.0, -20, 20, num_bits=8)
+print("Symmetric ", check_zero.device, " - ", check_zero)
+check_zero = tf.quantization.fake_quant_with_min_max_vars(0.0, -25, 20, num_bits=8)
+print("Asymmetric ", check_zero.device, " - ", check_zero)
+
 # Load MNIST dataset
 (train_images, train_labels), (test_images, test_labels) = utils.load_mnist()
 
@@ -234,9 +242,15 @@ if USE_BIAS:
 # index is 0->5 (QuantizeLayer,Flatten,Dense,Dense,Dense,Dense)
 extractor = keras.Model(inputs=qat_model.inputs, outputs=qat_model.layers[2].output)
 extractor_output = extractor(train_images)
-extractor_tflite_outputs = tflite_runner.collect_intermediate_outputs_no_bias(
-    tflite_model, train_images
-)
+if USE_BIAS:
+    extractor_tflite_outputs = tflite_runner.collect_intermediate_outputs(
+        tflite_model, train_images
+    )
+else:
+
+    extractor_tflite_outputs = tflite_runner.collect_intermediate_outputs_no_bias(
+        tflite_model, train_images
+    )
 qat_output = extractor_output.numpy().flatten()
 tflite_output = extractor_tflite_outputs[1].numpy().flatten()
 
@@ -259,29 +273,28 @@ fq_kernel = fake_quant(
     narrow=True,  # tflite spec says it uses narrow_range for weights, with below value
     min_spec=-127,
 )
+if USE_BIAS == False:
+    outputs = []
+    for image in train_images:
+        # Flatten image
+        image = tf.cast(tf.reshape(image, [-1, 784]), tf.float32)
+        assert image.shape == (1, 784)
+        # Quantize the input (tflite and QAT have same min/max params)
+        fq_input = fake_quant(
+            image, tflite_params[0]["input_scale"], tflite_params[0]["input_zp"]
+        )
+        y: tf.Tensor = tf.matmul(fq_input, fq_kernel)
+        assert y.shape == (1, 10)
+        # no bias adddition
+        # linear activation function
 
-outputs = []
-for image in train_images:
-    assert USE_BIAS == False
-    # Flatten image
-    image = tf.cast(tf.reshape(image, [-1, 784]), tf.float32)
-    assert image.shape == (1, 784)
-    # Quantize the input (tflite and QAT have same min/max params)
-    fq_input = fake_quant(
-        image, tflite_params[0]["input_scale"], tflite_params[0]["input_zp"]
-    )
-    y: tf.Tensor = tf.matmul(fq_input, fq_kernel)
-    assert y.shape == (1, 10)
-    # no bias adddition
-    # linear activation function
+        # Not fakeQuantizing outputs, in order to compare min/max params
 
-    # Not fakeQuantizing outputs, in order to compare min/max params
+        outputs.append(y)
 
-    outputs.append(y)
+    outputs = np.array(outputs)
 
-outputs = np.array(outputs)
-
-# Print input quantization param
-print("\nParameters from manual computation")
-utils.print_formatted("dense/post_activation_min", np.min(outputs))
-utils.print_formatted("dense/post_activation_max", np.max(outputs))
+    # Print input quantization param
+    print("\nParameters from manual computation")
+    utils.print_formatted("dense/post_activation_min", np.min(outputs))
+    utils.print_formatted("dense/post_activation_max", np.max(outputs))
