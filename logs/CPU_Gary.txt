@@ -1,0 +1,61 @@
+ >> python compare_params.py --no-bias
+tensorflow 2.5.0
+tensorflow-model-optimization 0.5.0
+# of GPUs Available: 0
+Symmetric  /job:localhost/replica:0/task:0/device:CPU:0  -  tf.Tensor(0.0, shape=(), dtype=float32)
+Asymmetric  /job:localhost/replica:0/task:0/device:CPU:0  -  tf.Tensor(0.0, shape=(), dtype=float32)
+Base test accuracy: 0.9003000259399414
+QAT test accuracy: 0.9003999829292297
+TFLite test accuracy: 0.9
+
+Note: the `Dense2` layer is the third Dense layer
+
+Parameters directly from QAT model
+quantize_layer/quantize_layer_min          0.000000
+quantize_layer/quantize_layer_max          1.000000
+quant_dense/kernel_min                    -0.396151
+quant_dense/kernel_max                     0.396151
+quant_dense/post_activation_min          -11.479006
+quant_dense/post_activation_max           11.944742
+quant_dense_1/kernel_min                  -0.807118
+quant_dense_1/kernel_max                   0.807118
+quant_dense_1/post_activation_min        -19.270018
+quant_dense_1/post_activation_max         20.674597
+quant_dense_2/kernel_min                  -0.822298
+quant_dense_2/kernel_max                   0.822298
+quant_dense_2/post_activation_min        -21.434063
+quant_dense_2/post_activation_max         29.734657
+quant_dense_3/kernel_min                  -0.777360
+quant_dense_3/kernel_max                   0.777360
+quant_dense_3/post_activation_min        -27.409367
+quant_dense_3/post_activation_max         28.588480
+
+Parameters from tflite model, calculated using our scale/zp --> min/max implementation
+flatten/input_layer_min                    0.000000
+flatten/input_layer_max                    1.000000
+dense/kernel_min                          -0.396151
+dense/kernel_max                           0.396151
+dense/post_activation_min                -11.480650
+dense/post_activation_max                 11.939876
+dense_1/kernel_min                        -0.807118
+dense_1/kernel_max                         0.807118
+dense_1/post_activation_min              -19.280199
+dense_1/post_activation_max               20.690947
+dense_2/kernel_min                        -0.822298
+dense_2/kernel_max                         0.822298
+dense_2/post_activation_min              -21.484192
+dense_2/post_activation_max               29.716454
+dense_3/kernel_min                        -0.777360
+dense_3/kernel_max                         0.777360
+dense_3/post_activation_min              -27.497276
+dense_3/post_activation_max               28.597168
+
+Parameters from intermediate outputs
+QAT - dense/post_activation_min          -11.482229
+QAT - dense/post_activation_max           11.941519
+tflite - dense/post_activation_min       -11.480650
+tflite - dense/post_activation_max        11.939876
+
+Parameters from manual computation
+dense/post_activation_min                -11.479006
+dense/post_activation_max                 11.944741
