@@ -16,7 +16,11 @@ from tensorflow_model_optimization.python.core.quantization.keras.default_8bit i
 
 import tflite_runner
 import utils
-from custom_layers import calculate_min_max_from_tflite, fake_quant
+from custom_layers import (
+    calculate_min_max_from_tflite,
+    calculate_scale_zp_from_min_max,
+    fake_quant,
+)
 
 # MonkeyPatch to use AllValuesQuantizer instead of moving average
 # to match behaviour of TFLite representative dataset quantization
@@ -211,10 +215,9 @@ for i, layer in enumerate(tflite_params):
             # Verify that min/max was derived correctly from tflite params, by recalculating
             # the scale param.
             # Does not match up for kernel params, due to narrow_range used in kernel
-            # Below formula is from Section 3 in https://arxiv.org/pdf/1712.05877.pdf
-            qat_paper_scale = (max.numpy() - min.numpy()) / (2 ** 8 - 1)
+            qat_paper_scale, _ = calculate_scale_zp_from_min_max(min, max)
             assert np.allclose(
-                qat_paper_scale, layer[f"{calc}_scale"], rtol=0, atol=1e-4
+                qat_paper_scale, layer[f"{calc}_scale"], rtol=0, atol=1e-5
             )
         if calc == "output":
             calc = "post_activation"  # Match QAT print statement
@@ -251,8 +254,8 @@ else:
     extractor_tflite_outputs = tflite_runner.collect_intermediate_outputs_no_bias(
         tflite_model, train_images
     )
-qat_output = extractor_output.numpy().flatten()
-tflite_output = extractor_tflite_outputs[1].numpy().flatten()
+qat_output = extractor_output.numpy()
+tflite_output = extractor_tflite_outputs[1].numpy()
 
 print("\nParameters from intermediate outputs")
 utils.print_formatted("QAT - dense/post_activation_min", np.min(qat_output))
@@ -264,6 +267,8 @@ utils.print_formatted("tflite - dense/post_activation_max", np.max(tflite_output
 # Check which min/max is "correct". i.e. take all the mnist digits,
 # multiply them by the first dense weight matrix, and check the min/max of the output.
 # see if it matches tflite or qat (or neither)
+# We can use the tflite scale/zp for fake_quantizing kernel and inputs, since they
+# match with the QAT min/max params.
 kernel = qat_model.weights[4]  # Get kernel from QAT model
 # FakeQuant kernel based on params from tflite model. (min/max is same in QAT model)
 fq_kernel = fake_quant(
@@ -273,7 +278,7 @@ fq_kernel = fake_quant(
     narrow=True,  # tflite spec says it uses narrow_range for weights, with below value
     min_spec=-127,
 )
-if USE_BIAS == False:
+if not USE_BIAS:
     outputs = []
     for image in train_images:
         # Flatten image

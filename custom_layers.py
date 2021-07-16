@@ -117,13 +117,29 @@ def calculate_min_max_from_tflite(
     zero_point: int,
     min_spec=-128,
 ):
-    # Calculate min/max from tflite params
+    """Calculate min/max from tflite params."""
+    # Formula derived from fact that tflite quantizes
+    # `real_value = (int8_value - zero_point) * scale`, and setting
+    # int8_value to the range possible [minspec, 127] for int8
     min = (min_spec - zero_point) * scale
     max = (127 - zero_point) * scale
     # FakeQuantWithMinMaxVars requires that 0.0 is always in the [min; max] range.
+    # See https://git.io/JWKjb
     range_min = tf.math.minimum(min, 0.0)
     range_max = tf.math.maximum(0.0, max)
     return range_min, range_max
+
+
+def calculate_scale_zp_from_min_max(min, max):
+    """Calculate scale and zero-point from min/max.
+
+    Note: will not work for parameters created with narrow_range.
+    """
+    # Below formula is from Section 3 in https://arxiv.org/pdf/1712.05877.pdf
+    scale = (max.numpy() - min.numpy()) / (2 ** 8 - 1)
+    # Below formula is rearrangment of calculate_min_max_from_tflite
+    zero_point = 127 - max / scale
+    return scale, zero_point
 
 
 def fake_quant(
@@ -299,6 +315,7 @@ class DenseTFLite(Dense):
 
             if self.use_bias:
                 # fake_quant_with_min_max_vars does not quantize to 32 bits
+                # https://git.io/JW6eK
                 quant_bias = quant_from_tflite_params(
                     self.bias, self.bias_scale, self.bias_zp, tf.int32
                 )
