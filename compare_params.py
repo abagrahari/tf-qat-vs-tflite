@@ -32,9 +32,6 @@ args = parser.parse_args()
 SEED: int = args.seed
 USE_BIAS: bool = args.no_bias  # Defaults to true
 
-utils.remove_path("saved_models")
-utils.remove_path("saved_weights")
-
 tf.random.set_seed(SEED)
 np.random.seed(SEED)
 
@@ -58,7 +55,7 @@ base_model.compile(
 )
 
 # Train the model and save weights of the base model
-saved_weights_path = f"saved_weights/compare_params_{SEED}"
+saved_weights_path = f"saved_weights/compare_params_{SEED}_{USE_BIAS}"
 if not Path(saved_weights_path + ".index").exists():
     base_model.fit(
         train_images, train_labels, epochs=1, validation_split=0.1, verbose=1
@@ -82,7 +79,7 @@ qat_model(train_images, training=True)
 
 # Create quantized model for TFLite from the base model
 tflite_model = tflite_runner.create_tflite_model(
-    train_images, base_model, f"saved_models/param_compare_{SEED}.tflite"
+    train_images, base_model, f"saved_models/param_compare_{SEED}_{USE_BIAS}.tflite"
 )
 
 interpreter = tflite_runner.get_interpreter(tflite_model)
@@ -233,6 +230,23 @@ if USE_BIAS:
         utils.print_formatted(f"{name}/bias_max", max.numpy())
 
 
+# Compare First dense layer outputs
+# index is 0->5 (QuantizeLayer,Flatten,Dense,Dense,Dense,Dense)
+extractor = keras.Model(inputs=qat_model.inputs, outputs=qat_model.layers[2].output)
+extractor_output = extractor(train_images)
+extractor_tflite_outputs = tflite_runner.collect_intermediate_outputs_no_bias(
+    tflite_model, train_images
+)
+qat_output = extractor_output.numpy().flatten()
+tflite_output = extractor_tflite_outputs[1].numpy().flatten()
+
+print("\nParameters from intermediate outputs")
+utils.print_formatted("QAT - dense/post_activation_min", np.min(qat_output))
+utils.print_formatted("QAT - dense/post_activation_max", np.max(qat_output))
+utils.print_formatted("tflite - dense/post_activation_min", np.min(tflite_output))
+utils.print_formatted("tflite - dense/post_activation_max", np.max(tflite_output))
+
+
 # Check which min/max is "correct". i.e. take all the mnist digits,
 # multiply them by the first dense weight matrix, and check the min/max of the output.
 # see if it matches tflite or qat (or neither)
@@ -268,9 +282,6 @@ for image in train_images:
 outputs = np.array(outputs)
 
 # Print input quantization param
-print(
-    "\nParameters from manual checking (to check which of above is 'correct'). Compare below params against the respective QAT and tflite params"
-)
-
+print("\nParameters from manual computation")
 utils.print_formatted("dense/post_activation_min", np.min(outputs))
 utils.print_formatted("dense/post_activation_max", np.max(outputs))

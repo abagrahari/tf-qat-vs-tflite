@@ -139,6 +139,52 @@ def collect_intermediate_outputs(tflite_model, images_dataset):
     return [tf.convert_to_tensor(np.array(layer_outputs)) for layer_outputs in outputs]
 
 
+def collect_intermediate_outputs_no_bias(tflite_model, images_dataset):
+    interpreter = get_interpreter(tflite_model)
+    """Helper function to return intermediate outputs on supplied dataset using the TF Lite model."""
+    # https://www.tensorflow.org/lite/guide/inference#load_and_run_a_model_in_python
+    input_details = interpreter.get_input_details()[0]
+    tensor_details = interpreter.get_tensor_details()
+
+    # Run predictions on every image in the "test" dataset.
+    outputs = [[], [], [], [], []]
+
+    for img in images_dataset:
+
+        # Check if the input type is quantized, then rescale input data to uint8
+        # as shown in TF's Post-Training Integer Quantization Example
+        assert input_details["dtype"] in [np.uint8, np.int8]
+        input_scale, input_zero_point = input_details["quantization"]
+        img = img / input_scale + input_zero_point
+        # The TensorFlow example does not have the np.round() op below.
+        # However during testing, without it, values like `125.99998498`
+        # are replaced with 125 instead of 126, since we would directly
+        # cast to int8/uint8
+        img = np.round(img)
+
+        # Pre-processing: add batch dimension and convert to datatype to match with
+        # the model's input data format.
+        assert img.shape == (28, 28)
+        img = np.expand_dims(img, axis=0).astype(input_details["dtype"])
+        assert img.shape == (1, 28, 28)
+        interpreter.set_tensor(input_details["index"], img)
+
+        # Run inference.
+        interpreter.invoke()
+
+        # Post-processing: remove batch dimension and dequantize the output
+        # based on TensorFlow's quantization params
+        # We dequantize the outputs so we can directly compare the raw
+        # outputs with the QAT model
+        for i in range(6, 11):
+            layer_output = interpreter.get_tensor(i)[0]
+            scale, zp = tensor_details[i]["quantization"]
+            layer_output = (layer_output.astype(np.float32) - zp) * scale
+            outputs[i - 6].append(layer_output)
+
+    return [tf.convert_to_tensor(np.array(layer_outputs)) for layer_outputs in outputs]
+
+
 def evaluate_tflite_model(tflite_model, test_images, test_labels):
     """Helper function to evaluate the TF Lite model on the test dataset."""
 
