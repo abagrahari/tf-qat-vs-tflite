@@ -25,10 +25,14 @@ parser.add_argument(
     help="Monkeypatch to AllValuesQuantizer and load weights from previous model",
     action="store_true",
 )
+parser.add_argument(
+    "--no-bias", help="Whether Dense layers should include bias", action="store_false"
+)
 args = parser.parse_args()
 
 SEED: int = args.seed
 EVAL: bool = args.eval
+USE_BIAS: bool = args.no_bias  # Defaults to true
 
 tf.random.set_seed(SEED)
 np.random.seed(SEED)
@@ -37,15 +41,15 @@ np.random.seed(SEED)
 # Load MNIST dataset
 (train_images, train_labels), (test_images, test_labels) = utils.load_mnist()
 
-saved_weights_path = f"saved_weights/3compare_{SEED}"
+saved_weights_path = f"saved_weights/3compare_{SEED}_{USE_BIAS}"
 
 base_model = keras.Sequential(
     [
         keras.layers.Flatten(input_shape=(28, 28)),
-        keras.layers.Dense(10),
-        keras.layers.Dense(10),
-        keras.layers.Dense(10),
-        keras.layers.Dense(10),
+        keras.layers.Dense(10, use_bias=USE_BIAS),
+        keras.layers.Dense(10, use_bias=USE_BIAS),
+        keras.layers.Dense(10, use_bias=USE_BIAS),
+        keras.layers.Dense(10, use_bias=USE_BIAS),
     ]
 )
 base_model.compile(
@@ -118,35 +122,28 @@ elif EVAL:
         ) and "post_activation" in weight.name:
             qat_post_activation_params[weight.name[:-2]] = weight
 
-    qat_scale_zp_params = []
-    qat_scale_zp_params.append(
+    qat_scale_zp_params = [
         custom_layers.calculate_scale_zp_from_min_max(
             qat_post_activation_params["quant_dense/post_activation_min"],
             qat_post_activation_params["quant_dense/post_activation_max"],
-        )
-    )
-    qat_scale_zp_params.append(
+        ),
         custom_layers.calculate_scale_zp_from_min_max(
             qat_post_activation_params["quant_dense_1/post_activation_min"],
             qat_post_activation_params["quant_dense_1/post_activation_max"],
-        )
-    )
-    qat_scale_zp_params.append(
+        ),
         custom_layers.calculate_scale_zp_from_min_max(
             qat_post_activation_params["quant_dense_2/post_activation_min"],
             qat_post_activation_params["quant_dense_2/post_activation_max"],
-        )
-    )
-    qat_scale_zp_params.append(
+        ),
         custom_layers.calculate_scale_zp_from_min_max(
             qat_post_activation_params["quant_dense_3/post_activation_min"],
             qat_post_activation_params["quant_dense_3/post_activation_max"],
-        )
-    )
+        ),
+    ]
 
     # Create quantized model for TFLite from the patched QAT model
     qat_tflite_model = tflite_runner.create_tflite_model(
-        train_images, qat_model2, f"saved_models/3compare_qat_{SEED}.tflite"
+        train_images, qat_model2, f"saved_models/3compare_qat_{SEED}_{USE_BIAS}.tflite"
     )
 
     # Setup the custom dense layer model with params from tflite
@@ -157,128 +154,243 @@ elif EVAL:
 
     # Create quantized model for TFLite from the base model
     base_tflite_model = tflite_runner.create_tflite_model(
-        train_images, base_model, f"saved_models/3compare_base_{SEED}.tflite"
+        train_images, base_model, f"saved_models/3compare_base_{SEED}_{USE_BIAS}.tflite"
     )
 
     interpreter = tflite_runner.get_interpreter(base_tflite_model)
     tensor_details = interpreter.get_tensor_details()
 
-    custom_model = keras.Sequential(
-        [
-            custom_layers.FlattenTFLite(
-                input_scale=tensor_details[0]["quantization"][0],
-                input_zp=tensor_details[0]["quantization"][1],
-                output_scale=tensor_details[10]["quantization"][0],
-                output_zp=tensor_details[10]["quantization"][1],
-                input_shape=(28, 28),
-            ),
-            custom_layers.DenseTFLite(
-                10,
-                input_scale=tensor_details[10]["quantization"][0],
-                input_zp=tensor_details[10]["quantization"][1],
-                kernel_scale=tensor_details[2]["quantization"][0],
-                kernel_zp=tensor_details[2]["quantization"][1],
-                bias_scale=tensor_details[3]["quantization"][0],
-                bias_zp=tensor_details[3]["quantization"][1],
-                output_scale=tensor_details[11]["quantization"][0],
-                output_zp=tensor_details[11]["quantization"][1],
-                kernel_tflite=interpreter.get_tensor(2).transpose(),
-                bias_tflite=interpreter.get_tensor(3),
-            ),
-            custom_layers.DenseTFLite(
-                10,
-                input_scale=tensor_details[11]["quantization"][0],
-                input_zp=tensor_details[11]["quantization"][1],
-                kernel_scale=tensor_details[4]["quantization"][0],
-                kernel_zp=tensor_details[4]["quantization"][1],
-                bias_scale=tensor_details[5]["quantization"][0],
-                bias_zp=tensor_details[5]["quantization"][1],
-                output_scale=tensor_details[12]["quantization"][0],
-                output_zp=tensor_details[12]["quantization"][1],
-                kernel_tflite=interpreter.get_tensor(4).transpose(),
-                bias_tflite=interpreter.get_tensor(5),
-            ),
-            custom_layers.DenseTFLite(
-                10,
-                input_scale=tensor_details[12]["quantization"][0],
-                input_zp=tensor_details[12]["quantization"][1],
-                kernel_scale=tensor_details[6]["quantization"][0],
-                kernel_zp=tensor_details[6]["quantization"][1],
-                bias_scale=tensor_details[7]["quantization"][0],
-                bias_zp=tensor_details[7]["quantization"][1],
-                output_scale=tensor_details[13]["quantization"][0],
-                output_zp=tensor_details[13]["quantization"][1],
-                kernel_tflite=interpreter.get_tensor(6).transpose(),
-                bias_tflite=interpreter.get_tensor(7),
-            ),
-            custom_layers.DenseTFLite(
-                10,
-                input_scale=tensor_details[13]["quantization"][0],
-                input_zp=tensor_details[13]["quantization"][1],
-                kernel_scale=tensor_details[8]["quantization"][0],
-                kernel_zp=tensor_details[8]["quantization"][1],
-                bias_scale=tensor_details[9]["quantization"][0],
-                bias_zp=tensor_details[9]["quantization"][1],
-                output_scale=tensor_details[14]["quantization"][0],
-                output_zp=tensor_details[14]["quantization"][1],
-                kernel_tflite=interpreter.get_tensor(8).transpose(),
-                bias_tflite=interpreter.get_tensor(9),
-            ),
-        ]
-    )
+    if USE_BIAS:
+        custom_model = keras.Sequential(
+            [
+                custom_layers.FlattenTFLite(
+                    input_scale=tensor_details[0]["quantization"][0],
+                    input_zp=tensor_details[0]["quantization"][1],
+                    output_scale=tensor_details[10]["quantization"][0],
+                    output_zp=tensor_details[10]["quantization"][1],
+                    input_shape=(28, 28),
+                ),
+                custom_layers.DenseTFLite(
+                    10,
+                    input_scale=tensor_details[10]["quantization"][0],
+                    input_zp=tensor_details[10]["quantization"][1],
+                    kernel_scale=tensor_details[2]["quantization"][0],
+                    kernel_zp=tensor_details[2]["quantization"][1],
+                    bias_scale=tensor_details[3]["quantization"][0],
+                    bias_zp=tensor_details[3]["quantization"][1],
+                    output_scale=tensor_details[11]["quantization"][0],
+                    output_zp=tensor_details[11]["quantization"][1],
+                    kernel_tflite=interpreter.get_tensor(2).transpose(),
+                    bias_tflite=interpreter.get_tensor(3),
+                ),
+                custom_layers.DenseTFLite(
+                    10,
+                    input_scale=tensor_details[11]["quantization"][0],
+                    input_zp=tensor_details[11]["quantization"][1],
+                    kernel_scale=tensor_details[4]["quantization"][0],
+                    kernel_zp=tensor_details[4]["quantization"][1],
+                    bias_scale=tensor_details[5]["quantization"][0],
+                    bias_zp=tensor_details[5]["quantization"][1],
+                    output_scale=tensor_details[12]["quantization"][0],
+                    output_zp=tensor_details[12]["quantization"][1],
+                    kernel_tflite=interpreter.get_tensor(4).transpose(),
+                    bias_tflite=interpreter.get_tensor(5),
+                ),
+                custom_layers.DenseTFLite(
+                    10,
+                    input_scale=tensor_details[12]["quantization"][0],
+                    input_zp=tensor_details[12]["quantization"][1],
+                    kernel_scale=tensor_details[6]["quantization"][0],
+                    kernel_zp=tensor_details[6]["quantization"][1],
+                    bias_scale=tensor_details[7]["quantization"][0],
+                    bias_zp=tensor_details[7]["quantization"][1],
+                    output_scale=tensor_details[13]["quantization"][0],
+                    output_zp=tensor_details[13]["quantization"][1],
+                    kernel_tflite=interpreter.get_tensor(6).transpose(),
+                    bias_tflite=interpreter.get_tensor(7),
+                ),
+                custom_layers.DenseTFLite(
+                    10,
+                    input_scale=tensor_details[13]["quantization"][0],
+                    input_zp=tensor_details[13]["quantization"][1],
+                    kernel_scale=tensor_details[8]["quantization"][0],
+                    kernel_zp=tensor_details[8]["quantization"][1],
+                    bias_scale=tensor_details[9]["quantization"][0],
+                    bias_zp=tensor_details[9]["quantization"][1],
+                    output_scale=tensor_details[14]["quantization"][0],
+                    output_zp=tensor_details[14]["quantization"][1],
+                    kernel_tflite=interpreter.get_tensor(8).transpose(),
+                    bias_tflite=interpreter.get_tensor(9),
+                ),
+            ]
+        )
+    else:
+        # tensor numbering is different
+        custom_model = keras.Sequential(
+            [
+                custom_layers.FlattenTFLite(
+                    input_scale=tensor_details[0]["quantization"][0],
+                    input_zp=tensor_details[0]["quantization"][1],
+                    output_scale=tensor_details[6]["quantization"][0],
+                    output_zp=tensor_details[6]["quantization"][1],
+                    input_shape=(28, 28),
+                ),
+                custom_layers.DenseTFLite(
+                    10,
+                    input_scale=tensor_details[6]["quantization"][0],
+                    input_zp=tensor_details[6]["quantization"][1],
+                    kernel_scale=tensor_details[2]["quantization"][0],
+                    kernel_zp=tensor_details[2]["quantization"][1],
+                    output_scale=tensor_details[7]["quantization"][0],
+                    output_zp=tensor_details[7]["quantization"][1],
+                    kernel_tflite=interpreter.get_tensor(2).transpose(),
+                    use_bias=USE_BIAS,
+                ),
+                custom_layers.DenseTFLite(
+                    10,
+                    input_scale=tensor_details[7]["quantization"][0],
+                    input_zp=tensor_details[7]["quantization"][1],
+                    kernel_scale=tensor_details[3]["quantization"][0],
+                    kernel_zp=tensor_details[3]["quantization"][1],
+                    output_scale=tensor_details[8]["quantization"][0],
+                    output_zp=tensor_details[8]["quantization"][1],
+                    kernel_tflite=interpreter.get_tensor(3).transpose(),
+                    use_bias=USE_BIAS,
+                ),
+                custom_layers.DenseTFLite(
+                    10,
+                    input_scale=tensor_details[8]["quantization"][0],
+                    input_zp=tensor_details[8]["quantization"][1],
+                    kernel_scale=tensor_details[4]["quantization"][0],
+                    kernel_zp=tensor_details[4]["quantization"][1],
+                    output_scale=tensor_details[9]["quantization"][0],
+                    output_zp=tensor_details[9]["quantization"][1],
+                    kernel_tflite=interpreter.get_tensor(4).transpose(),
+                    use_bias=USE_BIAS,
+                ),
+                custom_layers.DenseTFLite(
+                    10,
+                    input_scale=tensor_details[9]["quantization"][0],
+                    input_zp=tensor_details[9]["quantization"][1],
+                    kernel_scale=tensor_details[5]["quantization"][0],
+                    kernel_zp=tensor_details[5]["quantization"][1],
+                    output_scale=tensor_details[10]["quantization"][0],
+                    output_zp=tensor_details[10]["quantization"][1],
+                    kernel_tflite=interpreter.get_tensor(5).transpose(),
+                    use_bias=USE_BIAS,
+                ),
+            ]
+        )
     custom_model.compile(
         optimizer="adam",
         loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
         metrics=["accuracy"],
     )
+    if USE_BIAS:
+        custom_model_qat_params = keras.Sequential(
+            [
+                custom_layers.FlattenTFLite(
+                    input_scale=tensor_details[0]["quantization"][0],
+                    input_zp=tensor_details[0]["quantization"][1],
+                    output_scale=tensor_details[10]["quantization"][0],
+                    output_zp=tensor_details[10]["quantization"][1],
+                    input_shape=(28, 28),
+                ),
+                custom_layers.DenseTFLite(
+                    10,
+                    input_scale=tensor_details[10]["quantization"][0],
+                    input_zp=tensor_details[10]["quantization"][1],
+                    kernel_scale=tensor_details[2]["quantization"][0],
+                    kernel_zp=tensor_details[2]["quantization"][1],
+                    # Kernel params match between QAT and tflite, so it's ok to
+                    # scale using tflite params
+                    # Also, QAT doesn't have any params to FakeQuant the bias
+                    output_scale=qat_scale_zp_params[0][0],
+                    output_zp=qat_scale_zp_params[0][1],
+                ),
+                custom_layers.DenseTFLite(
+                    10,
+                    input_scale=qat_scale_zp_params[0][0],
+                    input_zp=qat_scale_zp_params[0][1],
+                    kernel_scale=tensor_details[4]["quantization"][0],
+                    kernel_zp=tensor_details[4]["quantization"][1],
+                    output_scale=qat_scale_zp_params[1][0],
+                    output_zp=qat_scale_zp_params[1][1],
+                ),
+                custom_layers.DenseTFLite(
+                    10,
+                    input_scale=qat_scale_zp_params[1][0],
+                    input_zp=qat_scale_zp_params[1][1],
+                    kernel_scale=tensor_details[6]["quantization"][0],
+                    kernel_zp=tensor_details[6]["quantization"][1],
+                    output_scale=qat_scale_zp_params[2][0],
+                    output_zp=qat_scale_zp_params[2][1],
+                ),
+                custom_layers.DenseTFLite(
+                    10,
+                    input_scale=qat_scale_zp_params[2][0],
+                    input_zp=qat_scale_zp_params[2][1],
+                    kernel_scale=tensor_details[8]["quantization"][0],
+                    kernel_zp=tensor_details[8]["quantization"][1],
+                    output_scale=qat_scale_zp_params[3][0],
+                    output_zp=qat_scale_zp_params[3][1],
+                ),
+            ]
+        )
+    else:
+        # Tensor numbering is different
+        custom_model_qat_params = keras.Sequential(
+            [
+                custom_layers.FlattenTFLite(
+                    input_scale=tensor_details[0]["quantization"][0],
+                    input_zp=tensor_details[0]["quantization"][1],
+                    output_scale=tensor_details[6]["quantization"][0],
+                    output_zp=tensor_details[6]["quantization"][1],
+                    input_shape=(28, 28),
+                ),
+                custom_layers.DenseTFLite(
+                    10,
+                    input_scale=tensor_details[6]["quantization"][0],
+                    input_zp=tensor_details[6]["quantization"][1],
+                    kernel_scale=tensor_details[2]["quantization"][0],
+                    kernel_zp=tensor_details[2]["quantization"][1],
+                    output_scale=qat_scale_zp_params[0][0],
+                    output_zp=qat_scale_zp_params[0][1],
+                    use_bias=USE_BIAS,
+                ),
+                custom_layers.DenseTFLite(
+                    10,
+                    input_scale=tensor_details[7]["quantization"][0],
+                    input_zp=tensor_details[7]["quantization"][1],
+                    kernel_scale=tensor_details[3]["quantization"][0],
+                    kernel_zp=tensor_details[3]["quantization"][1],
+                    output_scale=qat_scale_zp_params[1][0],
+                    output_zp=qat_scale_zp_params[1][1],
+                    use_bias=USE_BIAS,
+                ),
+                custom_layers.DenseTFLite(
+                    10,
+                    input_scale=tensor_details[8]["quantization"][0],
+                    input_zp=tensor_details[8]["quantization"][1],
+                    kernel_scale=tensor_details[4]["quantization"][0],
+                    kernel_zp=tensor_details[4]["quantization"][1],
+                    output_scale=qat_scale_zp_params[2][0],
+                    output_zp=qat_scale_zp_params[2][1],
+                    use_bias=USE_BIAS,
+                ),
+                custom_layers.DenseTFLite(
+                    10,
+                    input_scale=tensor_details[9]["quantization"][0],
+                    input_zp=tensor_details[9]["quantization"][1],
+                    kernel_scale=tensor_details[5]["quantization"][0],
+                    kernel_zp=tensor_details[5]["quantization"][1],
+                    output_scale=qat_scale_zp_params[3][0],
+                    output_zp=qat_scale_zp_params[3][1],
+                    use_bias=USE_BIAS,
+                ),
+            ]
+        )
 
-    custom_model_qat_params = keras.Sequential(
-        [
-            custom_layers.FlattenTFLite(
-                input_scale=tensor_details[0]["quantization"][0],
-                input_zp=tensor_details[0]["quantization"][1],
-                output_scale=tensor_details[10]["quantization"][0],
-                output_zp=tensor_details[10]["quantization"][1],
-                input_shape=(28, 28),
-            ),
-            custom_layers.DenseTFLite(
-                10,
-                input_scale=tensor_details[10]["quantization"][0],
-                input_zp=tensor_details[10]["quantization"][1],
-                kernel_scale=tensor_details[2]["quantization"][0],
-                kernel_zp=tensor_details[2]["quantization"][1],
-                output_scale=qat_scale_zp_params[0][0],
-                output_zp=qat_scale_zp_params[0][1],
-            ),
-            custom_layers.DenseTFLite(
-                10,
-                input_scale=qat_scale_zp_params[0][0],
-                input_zp=qat_scale_zp_params[0][1],
-                kernel_scale=tensor_details[4]["quantization"][0],
-                kernel_zp=tensor_details[4]["quantization"][1],
-                output_scale=qat_scale_zp_params[1][0],
-                output_zp=qat_scale_zp_params[1][1],
-            ),
-            custom_layers.DenseTFLite(
-                10,
-                input_scale=qat_scale_zp_params[1][0],
-                input_zp=qat_scale_zp_params[1][1],
-                kernel_scale=tensor_details[6]["quantization"][0],
-                kernel_zp=tensor_details[6]["quantization"][1],
-                output_scale=qat_scale_zp_params[2][0],
-                output_zp=qat_scale_zp_params[2][1],
-            ),
-            custom_layers.DenseTFLite(
-                10,
-                input_scale=qat_scale_zp_params[2][0],
-                input_zp=qat_scale_zp_params[2][1],
-                kernel_scale=tensor_details[8]["quantization"][0],
-                kernel_zp=tensor_details[8]["quantization"][1],
-                output_scale=qat_scale_zp_params[3][0],
-                output_zp=qat_scale_zp_params[3][1],
-            ),
-        ]
-    )
     custom_model_qat_params.compile(
         optimizer="adam",
         loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
