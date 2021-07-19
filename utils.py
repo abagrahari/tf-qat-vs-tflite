@@ -29,9 +29,7 @@ def load_mnist():
     return (train_images, train_labels), (test_images, test_labels)
 
 
-def output_stats(
-    x: np.ndarray, y: np.ndarray, test_name: str, tol: float, seed: int, ax=None
-):
+def output_stats(x: np.ndarray, y: np.ndarray, test_name: str, tol: float, seed: int, ax=None):
     """Output summary statistics"""
     assert x.shape == y.shape
 

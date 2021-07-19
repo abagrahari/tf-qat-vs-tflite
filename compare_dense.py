@@ -44,9 +44,7 @@ base_model.compile(
 
 saved_weights_path = f"saved_weights/compare_dense_{SEED}"
 if not Path(saved_weights_path + ".index").exists():
-    base_model.fit(
-        train_images, train_labels, epochs=1, validation_split=0.1, verbose=1
-    )
+    base_model.fit(train_images, train_labels, epochs=1, validation_split=0.1, verbose=1)
     base_model.save_weights(saved_weights_path)
 else:
     base_model.load_weights(
@@ -162,9 +160,7 @@ def run_intermeidate_outputs(lower_limit, upper_limit):
         imgs = np.expand_dims(test_images[lower_limit], axis=0).astype(np.float32)
         assert imgs.shape == (1, 28, 28)
     extractor_output = extractor(imgs)
-    extractor_tflite_outputs = tflite_runner.collect_intermediate_outputs(
-        tflite_model, imgs
-    )
+    extractor_tflite_outputs = tflite_runner.collect_intermediate_outputs(tflite_model, imgs)
     return extractor_output, extractor_tflite_outputs
 
 
@@ -211,9 +207,7 @@ def binary_search(imgs, low, high, relative_error_target):
 # custom_model.layers[2].print_int8_layer_outputs = False
 # custom_model.layers[3].print_int8_layer_outputs = False
 # custom_model.layers[4].print_int8_layer_outputs = False
-extractor_output, extractor_tflite_outputs = run_intermeidate_outputs(
-    0, test_images.shape[0]
-)
+extractor_output, extractor_tflite_outputs = run_intermeidate_outputs(0, test_images.shape[0])
 
 # Compare layer by layer outputs
 fig, axs = plt.subplots(1, 5)
@@ -240,9 +234,7 @@ custom_output = custom_output.flatten()
 tflite_output = tflite_output.flatten()
 
 # Check that Custom model is closer to tflite, than base model
-utils.output_stats(
-    custom_output, tflite_output, "Custom vs TFLite - Overall", 1e-2, SEED
-)
+utils.output_stats(custom_output, tflite_output, "Custom vs TFLite - Overall", 1e-2, SEED)
 
 # comparision = np.isclose(custom_output, tflite_output, rtol=0, atol=1e-2)
 # if np.count_nonzero(~comparision) != 0:

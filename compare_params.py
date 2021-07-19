@@ -63,9 +63,7 @@ base_model.compile(
 
 # Train the model and save weights of the base model
 if not Path(saved_weights_path + ".index").exists():
-    base_model.fit(
-        train_images, train_labels, epochs=1, validation_split=0.1, verbose=1
-    )
+    base_model.fit(train_images, train_labels, epochs=1, validation_split=0.1, verbose=1)
     base_model.save_weights(saved_weights_path)
 else:
     base_model.load_weights(
@@ -210,9 +208,7 @@ for i, layer in enumerate(tflite_params):
             # the scale param.
             # Does not match up for kernel params, due to narrow_range used in kernel
             qat_paper_scale, _ = calculate_scale_zp_from_min_max(min, max)
-            assert np.allclose(
-                qat_paper_scale, layer[f"{calc}_scale"], rtol=0, atol=1e-5
-            )
+            assert np.allclose(qat_paper_scale, layer[f"{calc}_scale"], rtol=0, atol=1e-5)
         if calc == "output":
             calc = "post_activation"  # Match QAT print statement
         utils.print_formatted(f"{name}/{calc}_min", min.numpy())

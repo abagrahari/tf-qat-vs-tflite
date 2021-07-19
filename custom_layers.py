@@ -101,9 +101,7 @@ def quant_from_tflite_params(
     return tf.cast(tf.round(x_fp32 / scale), dtype) + zero_point
 
 
-def dequant_from_tflite_params(
-    x_int8: tf.Tensor, scale: float, zero_point: int
-) -> tf.Tensor:
+def dequant_from_tflite_params(x_int8: tf.Tensor, scale: float, zero_point: int) -> tf.Tensor:
     """Dequantize a tensor, given parameters from the quantized TFLite model
 
     From int8 to fp32
@@ -277,9 +275,7 @@ class DenseTFLite(Dense):
         self.output_min = output_min
         self.output_max = output_max
         self.mode = "FakeQuant"
-        self.print_int8_layer_outputs = (
-            False  # For debugging issues in quantization of layer
-        )
+        self.print_int8_layer_outputs = False  # For debugging issues in quantization of layer
 
     def call(self, inputs: tf.Tensor):
 
@@ -363,9 +359,7 @@ class DenseTFLite(Dense):
                 layer_num = (int(self.name[-1]) + 1) if self.name[-1] != "e" else 1
                 tf.print(
                     f"Custom Dense Layer {layer_num}'s int8 output:",
-                    quant_from_tflite_params(
-                        y, self.output_scale, self.output_zp, tf.int8
-                    ),
+                    quant_from_tflite_params(y, self.output_scale, self.output_zp, tf.int8),
                     summarize=-1,
                 )
             return y
