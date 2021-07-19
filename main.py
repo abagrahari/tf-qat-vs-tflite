@@ -2,6 +2,7 @@
 
 import argparse
 import os
+from datetime import datetime
 
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 
@@ -59,14 +60,27 @@ base_model.compile(
 )
 
 if not EVAL:
+
+    logdir = f"tflogs/base_{SEED}_{USE_BIAS}_" + datetime.now().strftime("%Y%m%d-%H%M%S")
+    tensorboard_callback = keras.callbacks.TensorBoard(log_dir=logdir)
     # Train the model and save weights of the base and un-patched QAT model
-    base_model.fit(train_images, train_labels, epochs=1, validation_split=0.1, verbose=1)
+    base_model.fit(
+        train_images,
+        train_labels,
+        epochs=1,
+        validation_split=0.1,
+        verbose=1,
+        callbacks=[tensorboard_callback],
+    )
     base_model.save_weights(saved_weights_path)
 
     # Clone and fine-tune the regularaly trained model with quantization aware training
     # We apply QAT to the whole model
     # Note: the resulting model is quantization aware but not quantized (e.g. the
     # weights are float32 instead of int8).
+
+    logdir = f"tflogs/qat_{SEED}_{USE_BIAS}_" + datetime.now().strftime("%Y%m%d-%H%M%S")
+    tensorboard_callback = keras.callbacks.TensorBoard(log_dir=logdir)
     qat_model = tfmot.quantization.keras.quantize_model(base_model)
     qat_model.compile(
         optimizer="adam",
@@ -83,6 +97,7 @@ if not EVAL:
     #     epochs=1,
     #     validation_split=0.1,
     #     verbose=1,
+    #     callbacks=[tensorboard_callback],
     # )
     qat_model.save_weights(saved_weights_path + "_qat")
 
