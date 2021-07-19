@@ -1,13 +1,4 @@
-# The aim is to compare a QAT model, its TFLite model,
-# and a custom keras dense layer that mimics TFLite's quantization approach.
-
-# Here we:
-# - Train a tf.keras model for MNIST from scratch.
-# - Fine tune the model by applying the quantization aware training API, and create a quantization aware model.
-# - Use the model to create an actually-quantized model for TFLite.
-# - Use the base model to create a custom-layered model and incorporate tflite model's quantization parameters
-# - Compare the error in raw output values.
-
+# Comparing outputs of QAT model, CustomLayer model using tflite parameters, and tflite model
 
 import argparse
 import os
@@ -40,6 +31,7 @@ SEED: int = args.seed
 EVAL: bool = args.eval
 
 tf.random.set_seed(SEED)
+np.random.seed(SEED)
 
 # Train a model for MNIST without QAT
 # Load MNIST dataset
@@ -81,14 +73,15 @@ if not EVAL:
     )
 
     # fine tune with quantization aware training
-    qat_model.fit(
-        train_images,
-        train_labels,
-        batch_size=500,
-        epochs=1,
-        validation_split=0.1,
-        verbose=1,
-    )
+    # Don't do the extra epoch, for now.
+    # qat_model.fit(
+    #     train_images,
+    #     train_labels,
+    #     batch_size=500,
+    #     epochs=1,
+    #     validation_split=0.1,
+    #     verbose=1,
+    # )
     qat_model.save_weights(saved_weights_path + "_qat")
 
 elif EVAL:
@@ -115,8 +108,41 @@ elif EVAL:
         saved_weights_path + "_qat"
     ).assert_existing_objects_matched().expect_partial()
 
-    # calibrate QAT model, after the monkey patch
+    # Calibrate QAT model
     qat_model2(train_images, training=True)
+
+    qat_post_activation_params = {}
+    for weight in qat_model2.weights:
+        if (
+            "min" in weight.name or "max" in weight.name
+        ) and "post_activation" in weight.name:
+            qat_post_activation_params[weight.name[:-2]] = weight
+
+    qat_scale_zp_params = []
+    qat_scale_zp_params.append(
+        custom_layers.calculate_scale_zp_from_min_max(
+            qat_post_activation_params["quant_dense/post_activation_min"],
+            qat_post_activation_params["quant_dense/post_activation_max"],
+        )
+    )
+    qat_scale_zp_params.append(
+        custom_layers.calculate_scale_zp_from_min_max(
+            qat_post_activation_params["quant_dense_1/post_activation_min"],
+            qat_post_activation_params["quant_dense_1/post_activation_max"],
+        )
+    )
+    qat_scale_zp_params.append(
+        custom_layers.calculate_scale_zp_from_min_max(
+            qat_post_activation_params["quant_dense_2/post_activation_min"],
+            qat_post_activation_params["quant_dense_2/post_activation_max"],
+        )
+    )
+    qat_scale_zp_params.append(
+        custom_layers.calculate_scale_zp_from_min_max(
+            qat_post_activation_params["quant_dense_3/post_activation_min"],
+            qat_post_activation_params["quant_dense_3/post_activation_max"],
+        )
+    )
 
     # Create quantized model for TFLite from the patched QAT model
     qat_tflite_model = tflite_runner.create_tflite_model(
@@ -206,6 +232,59 @@ elif EVAL:
         metrics=["accuracy"],
     )
 
+    custom_model_qat_params = keras.Sequential(
+        [
+            custom_layers.FlattenTFLite(
+                input_scale=tensor_details[0]["quantization"][0],
+                input_zp=tensor_details[0]["quantization"][1],
+                output_scale=tensor_details[10]["quantization"][0],
+                output_zp=tensor_details[10]["quantization"][1],
+                input_shape=(28, 28),
+            ),
+            custom_layers.DenseTFLite(
+                10,
+                input_scale=tensor_details[10]["quantization"][0],
+                input_zp=tensor_details[10]["quantization"][1],
+                kernel_scale=tensor_details[2]["quantization"][0],
+                kernel_zp=tensor_details[2]["quantization"][1],
+                output_scale=qat_scale_zp_params[0][0],
+                output_zp=qat_scale_zp_params[0][1],
+            ),
+            custom_layers.DenseTFLite(
+                10,
+                input_scale=qat_scale_zp_params[0][0],
+                input_zp=qat_scale_zp_params[0][1],
+                kernel_scale=tensor_details[4]["quantization"][0],
+                kernel_zp=tensor_details[4]["quantization"][1],
+                output_scale=qat_scale_zp_params[1][0],
+                output_zp=qat_scale_zp_params[1][1],
+            ),
+            custom_layers.DenseTFLite(
+                10,
+                input_scale=qat_scale_zp_params[1][0],
+                input_zp=qat_scale_zp_params[1][1],
+                kernel_scale=tensor_details[6]["quantization"][0],
+                kernel_zp=tensor_details[6]["quantization"][1],
+                output_scale=qat_scale_zp_params[2][0],
+                output_zp=qat_scale_zp_params[2][1],
+            ),
+            custom_layers.DenseTFLite(
+                10,
+                input_scale=qat_scale_zp_params[2][0],
+                input_zp=qat_scale_zp_params[2][1],
+                kernel_scale=tensor_details[8]["quantization"][0],
+                kernel_zp=tensor_details[8]["quantization"][1],
+                output_scale=qat_scale_zp_params[3][0],
+                output_zp=qat_scale_zp_params[3][1],
+            ),
+        ]
+    )
+    custom_model_qat_params.compile(
+        optimizer="adam",
+        loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
+        metrics=["accuracy"],
+    )
+
     # Copy weights from regular base model to custom model,
     # since we focus on using custom model for inference, and don't train it
     for regular_layer, custom_layer in zip(base_model.layers, custom_model.layers):
@@ -214,9 +293,21 @@ elif EVAL:
         for i, j in zip(regular_layer.get_weights(), custom_layer.get_weights()):
             assert np.array_equal(i, j)
 
+    # Copy weights from regular base model to custom model
+    for regular_layer, custom_layer in zip(
+        base_model.layers, custom_model_qat_params.layers
+    ):
+        custom_layer.set_weights(regular_layer.get_weights())
+        # Verify that weights were loaded
+        for i, j in zip(regular_layer.get_weights(), custom_layer.get_weights()):
+            assert np.array_equal(i, j)
+
     _, base_model_accuracy = base_model.evaluate(test_images, test_labels, verbose=0)
     _, qat_model_accuracy = qat_model2.evaluate(test_images, test_labels, verbose=0)
     _, custom_model_accuracy = custom_model.evaluate(
+        test_images, test_labels, verbose=0
+    )
+    _, custom_model_qat_params_accuracy = custom_model_qat_params.evaluate(
         test_images, test_labels, verbose=0
     )
     # custom layer's accuracy is lower than QAT model - perhaps because QAT model trains for 1-2 more epochs?
@@ -230,18 +321,25 @@ elif EVAL:
     print("Base test accuracy:", base_model_accuracy)
     print("QAT test accuracy:", qat_model_accuracy)
     print("Custom layer test accuracy:", custom_model_accuracy)
+    print(
+        "Custom layer with QAT params test accuracy:", custom_model_qat_params_accuracy
+    )
     print("Base TFLite test accuracy:", base_tflite_model_accuracy)
     print("QAT TFLite test_accuracy:", qat_tflite_model_accuracy)
 
     # Run test dataset on models
     base_output: np.ndarray = base_model.predict(test_images)
     custom_output: np.ndarray = custom_model.predict(test_images)
+    custom_with_qat_params_output: np.ndarray = custom_model_qat_params.predict(
+        test_images
+    )
     qat_output: np.ndarray = qat_model2.predict(test_images)
     base_tflite_output = tflite_runner.run_tflite_model(base_tflite_model, test_images)
     qat_tflite_output = tflite_runner.run_tflite_model(qat_tflite_model, test_images)
 
     base_output = base_output.flatten()
     custom_output = custom_output.flatten()
+    custom_with_qat_params_output = custom_with_qat_params_output.flatten()
     qat_output = qat_output.flatten()
     base_tflite_output = base_tflite_output.flatten()
     qat_tflite_output = qat_tflite_output.flatten()
@@ -249,5 +347,16 @@ elif EVAL:
     # Determine if custom model is closer to tflite than QAT model:
     utils.output_stats(qat_output, qat_tflite_output, "QAT vs QAT TFLite", 1e-2, SEED)
     utils.output_stats(
-        custom_output, base_tflite_output, "Custom vs Base TFLite", 1e-2, SEED
+        custom_output,
+        base_tflite_output,
+        "Custom with tflite params vs Base TFLite",
+        1e-2,
+        SEED,
+    )
+    utils.output_stats(
+        custom_with_qat_params_output,
+        qat_output,
+        "Custom with QAT params vs QAT",
+        1e-2,
+        SEED,
     )

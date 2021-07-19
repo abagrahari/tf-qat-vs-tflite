@@ -1,4 +1,4 @@
-# Compare QAT and tflite quantization parameters
+# Comparing QAT and tflite quantization parameters
 
 import argparse
 import os
@@ -30,7 +30,9 @@ default_8bit_quantize_registry.quantizers.MovingAverageQuantizer = (
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--seed", help="seed for tf.random", type=int, default=0)
-parser.add_argument("--no-bias", help="seed for tf.random", action="store_false")
+parser.add_argument(
+    "--no-bias", help="Whether Dense layers should include bias", action="store_false"
+)
 args = parser.parse_args()
 
 SEED: int = args.seed
@@ -39,17 +41,10 @@ USE_BIAS: bool = args.no_bias  # Defaults to true
 tf.random.set_seed(SEED)
 np.random.seed(SEED)
 
-print("tensorflow", tf.__version__)
-os.system("pip list | grep tensorflow-model-optimization")
-print("# of GPUs Available:", len(tf.config.list_physical_devices("GPU")))
-check_zero = tf.quantization.fake_quant_with_min_max_vars(0.0, -20, 20, num_bits=8)
-print("Symmetric ", check_zero.device, " - ", check_zero)
-check_zero = tf.quantization.fake_quant_with_min_max_vars(0.0, -25, 20, num_bits=8)
-print("Asymmetric ", check_zero.device, " - ", check_zero)
-
 # Load MNIST dataset
 (train_images, train_labels), (test_images, test_labels) = utils.load_mnist()
 
+saved_weights_path = f"saved_weights/compare_params_{SEED}_{USE_BIAS}"
 
 base_model = keras.Sequential(
     [
@@ -67,7 +62,6 @@ base_model.compile(
 )
 
 # Train the model and save weights of the base model
-saved_weights_path = f"saved_weights/compare_params_{SEED}_{USE_BIAS}"
 if not Path(saved_weights_path + ".index").exists():
     base_model.fit(
         train_images, train_labels, epochs=1, validation_split=0.1, verbose=1
@@ -86,7 +80,7 @@ qat_model.compile(
     metrics=["accuracy"],
 )
 
-# Manually calibrate QAT model
+# Calibrate QAT model
 qat_model(train_images, training=True)
 
 # Create quantized model for TFLite from the base model

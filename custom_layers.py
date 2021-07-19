@@ -277,23 +277,24 @@ class DenseTFLite(Dense):
 
         # Verify that kernel and bias are quantizing correctly
 
-        # Verify quantized kernel matches int8 kernel from tflite
-        quant_kernel = quant_from_tflite_params(
-            self.kernel, self.kernel_scale, self.kernel_zp, tf.int8
-        )
-        tf.debugging.assert_equal(quant_kernel, self.kernel_tflite)
-        # Verify that quantizing the FakeQuantized kernel matches int8 kernel from tflite
-        fq_kernel = fake_quant(
-            self.kernel,
-            self.kernel_scale,
-            self.kernel_zp,
-        )
-        quant_kernel = quant_from_tflite_params(
-            fq_kernel, self.kernel_scale, self.kernel_zp, tf.int8
-        )
-        tf.debugging.assert_equal(quant_kernel, self.kernel_tflite)
+        if self.kernel_tflite is not None:
+            # Verify quantized kernel matches int8 kernel from tflite
+            quant_kernel = quant_from_tflite_params(
+                self.kernel, self.kernel_scale, self.kernel_zp, tf.int8
+            )
+            tf.debugging.assert_equal(quant_kernel, self.kernel_tflite)
+            # Verify that quantizing the FakeQuantized kernel matches int8 kernel from tflite
+            fq_kernel = fake_quant(
+                self.kernel,
+                self.kernel_scale,
+                self.kernel_zp,
+            )
+            quant_kernel = quant_from_tflite_params(
+                fq_kernel, self.kernel_scale, self.kernel_zp, tf.int8
+            )
+            tf.debugging.assert_equal(quant_kernel, self.kernel_tflite)
 
-        if self.use_bias:
+        if self.use_bias and self.bias_tflite is not None:
             # Verify quantized bias matches int32 bias from tflite
             quant_bias = quant_from_tflite_params(
                 self.bias, self.bias_scale, self.bias_zp, tf.int32

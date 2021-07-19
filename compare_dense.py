@@ -1,4 +1,4 @@
-# The aim is to mimic keras' dense layer and TFLite's quantization approach.
+# Comparing outputs of CustomLayer model using tflite parameters vs. tflite model
 
 import argparse
 import os
