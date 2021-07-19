@@ -245,6 +245,8 @@ class DenseTFLite(Dense):
         use_bias=True,
         input_scale=1,
         input_zp=0,
+        input_min=None,
+        input_max=None,
         kernel_scale=1,
         kernel_zp=0,
         bias_scale=1,
@@ -253,12 +255,16 @@ class DenseTFLite(Dense):
         output_zp=0,
         kernel_tflite=None,
         bias_tflite=None,
+        output_min=None,
+        output_max=None,
         **kwargs,
     ):
         super().__init__(units, activation, use_bias, **kwargs)
 
         self.input_scale = input_scale
         self.input_zp = input_zp
+        self.input_min = input_min
+        self.input_max = input_max
         self.kernel_scale = kernel_scale
         self.kernel_zp = kernel_zp
         self.bias_scale = bias_scale
@@ -268,6 +274,8 @@ class DenseTFLite(Dense):
         self.output_zp = output_zp
         self.kernel_tflite = kernel_tflite
         self.bias_tflite = bias_tflite
+        self.output_min = output_min
+        self.output_max = output_max
         self.mode = "FakeQuant"
         self.print_int8_layer_outputs = (
             False  # For debugging issues in quantization of layer
@@ -303,7 +311,18 @@ class DenseTFLite(Dense):
 
         if self.mode == "FakeQuant":
             # https://www.tensorflow.org/lite/performance/quantization_spec#int8_quantized_operator_specifications
-            fq_input = fake_quant(inputs, self.input_scale, self.input_zp)
+            if self.input_min is not None and self.input_max is not None:
+                # Use min/max parameters
+                fq_input = tf.quantization.fake_quant_with_min_max_vars(
+                    inputs,
+                    self.input_min,
+                    self.input_max,
+                    num_bits=8,
+                    narrow_range=False,
+                )
+            else:
+                # use scale/zp parameters
+                fq_input = fake_quant(inputs, self.input_scale, self.input_zp)
             fq_kernel = fake_quant(
                 self.kernel,
                 self.kernel_scale,
@@ -330,7 +349,15 @@ class DenseTFLite(Dense):
             # FakeQuant the outputs to account for loss of information when quantizing
             # This is redundant on all layers except the final output layer
             # I've left it in for now to make it easier to compare this layer's intermediate outputs with the tflite model
-            y = fake_quant(y, self.output_scale, self.output_zp)
+
+            if self.output_min is not None and self.output_max is not None:
+                # Use min/max parameters
+                y = tf.quantization.fake_quant_with_min_max_vars(
+                    y, self.output_min, self.output_max, num_bits=8, narrow_range=False
+                )
+            else:
+                # use scale/zp parameters
+                y = fake_quant(y, self.output_scale, self.output_zp)
 
             if self.print_int8_layer_outputs:
                 layer_num = (int(self.name[-1]) + 1) if self.name[-1] != "e" else 1

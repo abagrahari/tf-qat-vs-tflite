@@ -120,26 +120,7 @@ elif EVAL:
         if (
             "min" in weight.name or "max" in weight.name
         ) and "post_activation" in weight.name:
-            qat_post_activation_params[weight.name[:-2]] = weight
-
-    qat_scale_zp_params = [
-        custom_layers.calculate_scale_zp_from_min_max(
-            qat_post_activation_params["quant_dense/post_activation_min"],
-            qat_post_activation_params["quant_dense/post_activation_max"],
-        ),
-        custom_layers.calculate_scale_zp_from_min_max(
-            qat_post_activation_params["quant_dense_1/post_activation_min"],
-            qat_post_activation_params["quant_dense_1/post_activation_max"],
-        ),
-        custom_layers.calculate_scale_zp_from_min_max(
-            qat_post_activation_params["quant_dense_2/post_activation_min"],
-            qat_post_activation_params["quant_dense_2/post_activation_max"],
-        ),
-        custom_layers.calculate_scale_zp_from_min_max(
-            qat_post_activation_params["quant_dense_3/post_activation_min"],
-            qat_post_activation_params["quant_dense_3/post_activation_max"],
-        ),
-    ]
+            qat_post_activation_params[weight.name[:-2]] = weight.numpy()
 
     # Create quantized model for TFLite from the patched QAT model
     qat_tflite_model = tflite_runner.create_tflite_model(
@@ -160,6 +141,7 @@ elif EVAL:
     interpreter = tflite_runner.get_interpreter(base_tflite_model)
     tensor_details = interpreter.get_tensor_details()
 
+    # Create model using CustomLayers and params from tflite
     if USE_BIAS:
         custom_model = keras.Sequential(
             [
@@ -286,6 +268,8 @@ elif EVAL:
         loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
         metrics=["accuracy"],
     )
+    # Create model using CustomLayers and params from QAT
+    # Sometimes, it is acceptable to use parameters from tflite(e.g. kernel)
     if USE_BIAS:
         custom_model_qat_params = keras.Sequential(
             [
@@ -303,37 +287,65 @@ elif EVAL:
                     kernel_scale=tensor_details[2]["quantization"][0],
                     kernel_zp=tensor_details[2]["quantization"][1],
                     # Kernel params match between QAT and tflite, so it's ok to
-                    # scale using tflite params
+                    # scale using tflite params. Similar reason for input layer scale
                     # Also, QAT doesn't have any params to FakeQuant the bias
-                    output_scale=qat_scale_zp_params[0][0],
-                    output_zp=qat_scale_zp_params[0][1],
+                    output_min=qat_post_activation_params[
+                        "quant_dense/post_activation_min"
+                    ],
+                    output_max=qat_post_activation_params[
+                        "quant_dense/post_activation_max"
+                    ],
                 ),
                 custom_layers.DenseTFLite(
                     10,
-                    input_scale=qat_scale_zp_params[0][0],
-                    input_zp=qat_scale_zp_params[0][1],
+                    input_min=qat_post_activation_params[
+                        "quant_dense/post_activation_min"
+                    ],
+                    input_max=qat_post_activation_params[
+                        "quant_dense/post_activation_max"
+                    ],
                     kernel_scale=tensor_details[4]["quantization"][0],
                     kernel_zp=tensor_details[4]["quantization"][1],
-                    output_scale=qat_scale_zp_params[1][0],
-                    output_zp=qat_scale_zp_params[1][1],
+                    output_min=qat_post_activation_params[
+                        "quant_dense_1/post_activation_min"
+                    ],
+                    output_max=qat_post_activation_params[
+                        "quant_dense_1/post_activation_max"
+                    ],
                 ),
                 custom_layers.DenseTFLite(
                     10,
-                    input_scale=qat_scale_zp_params[1][0],
-                    input_zp=qat_scale_zp_params[1][1],
+                    input_min=qat_post_activation_params[
+                        "quant_dense_1/post_activation_min"
+                    ],
+                    input_max=qat_post_activation_params[
+                        "quant_dense_1/post_activation_max"
+                    ],
                     kernel_scale=tensor_details[6]["quantization"][0],
                     kernel_zp=tensor_details[6]["quantization"][1],
-                    output_scale=qat_scale_zp_params[2][0],
-                    output_zp=qat_scale_zp_params[2][1],
+                    output_min=qat_post_activation_params[
+                        "quant_dense_2/post_activation_min"
+                    ],
+                    output_max=qat_post_activation_params[
+                        "quant_dense_2/post_activation_max"
+                    ],
                 ),
                 custom_layers.DenseTFLite(
                     10,
-                    input_scale=qat_scale_zp_params[2][0],
-                    input_zp=qat_scale_zp_params[2][1],
+                    input_min=qat_post_activation_params[
+                        "quant_dense_2/post_activation_min"
+                    ],
+                    input_max=qat_post_activation_params[
+                        "quant_dense_2/post_activation_max"
+                    ],
                     kernel_scale=tensor_details[8]["quantization"][0],
                     kernel_zp=tensor_details[8]["quantization"][1],
-                    output_scale=qat_scale_zp_params[3][0],
-                    output_zp=qat_scale_zp_params[3][1],
+                    output_min=qat_post_activation_params[
+                        "quant_dense_3/post_activation_min"
+                    ],
+                    output_max=qat_post_activation_params[
+                        "quant_dense_3/post_activation_max"
+                    ],
                 ),
             ]
         )
@@ -354,38 +366,67 @@ elif EVAL:
                     input_zp=tensor_details[6]["quantization"][1],
                     kernel_scale=tensor_details[2]["quantization"][0],
                     kernel_zp=tensor_details[2]["quantization"][1],
-                    output_scale=qat_scale_zp_params[0][0],
-                    output_zp=qat_scale_zp_params[0][1],
+                    # See earlier comment on why tflite params can be used for kernel
+                    output_min=qat_post_activation_params[
+                        "quant_dense/post_activation_min"
+                    ],
+                    output_max=qat_post_activation_params[
+                        "quant_dense/post_activation_max"
+                    ],
                     use_bias=USE_BIAS,
                 ),
                 custom_layers.DenseTFLite(
                     10,
-                    input_scale=tensor_details[7]["quantization"][0],
-                    input_zp=tensor_details[7]["quantization"][1],
+                    input_min=qat_post_activation_params[
+                        "quant_dense/post_activation_min"
+                    ],
+                    input_max=qat_post_activation_params[
+                        "quant_dense/post_activation_max"
+                    ],
                     kernel_scale=tensor_details[3]["quantization"][0],
                     kernel_zp=tensor_details[3]["quantization"][1],
-                    output_scale=qat_scale_zp_params[1][0],
-                    output_zp=qat_scale_zp_params[1][1],
+                    output_min=qat_post_activation_params[
+                        "quant_dense_1/post_activation_min"
+                    ],
+                    output_max=qat_post_activation_params[
+                        "quant_dense_1/post_activation_max"
+                    ],
                     use_bias=USE_BIAS,
                 ),
                 custom_layers.DenseTFLite(
                     10,
-                    input_scale=tensor_details[8]["quantization"][0],
-                    input_zp=tensor_details[8]["quantization"][1],
+                    input_min=qat_post_activation_params[
+                        "quant_dense_1/post_activation_min"
+                    ],
+                    input_max=qat_post_activation_params[
+                        "quant_dense_1/post_activation_max"
+                    ],
                     kernel_scale=tensor_details[4]["quantization"][0],
                     kernel_zp=tensor_details[4]["quantization"][1],
-                    output_scale=qat_scale_zp_params[2][0],
-                    output_zp=qat_scale_zp_params[2][1],
+                    output_min=qat_post_activation_params[
+                        "quant_dense_2/post_activation_min"
+                    ],
+                    output_max=qat_post_activation_params[
+                        "quant_dense_2/post_activation_max"
+                    ],
                     use_bias=USE_BIAS,
                 ),
                 custom_layers.DenseTFLite(
                     10,
-                    input_scale=tensor_details[9]["quantization"][0],
-                    input_zp=tensor_details[9]["quantization"][1],
+                    input_min=qat_post_activation_params[
+                        "quant_dense_2/post_activation_min"
+                    ],
+                    input_max=qat_post_activation_params[
+                        "quant_dense_2/post_activation_max"
+                    ],
                     kernel_scale=tensor_details[5]["quantization"][0],
                     kernel_zp=tensor_details[5]["quantization"][1],
-                    output_scale=qat_scale_zp_params[3][0],
-                    output_zp=qat_scale_zp_params[3][1],
+                    output_min=qat_post_activation_params[
+                        "quant_dense_3/post_activation_min"
+                    ],
+                    output_max=qat_post_activation_params[
+                        "quant_dense_3/post_activation_max"
+                    ],
                     use_bias=USE_BIAS,
                 ),
             ]
