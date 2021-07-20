@@ -464,3 +464,17 @@ elif EVAL:
         1e-2,
         SEED,
     )
+    utils.output_stats(
+        qat_output,
+        base_tflite_output,
+        "QAT vs Base TFLite",
+        1e-2,
+        SEED,
+    )
+    utils.output_stats(
+        custom_with_qat_params_output,
+        base_tflite_output,
+        "Custom with QAT params vs Base TFLite",
+        1e-2,
+        SEED,
+    )
