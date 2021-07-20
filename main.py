@@ -302,6 +302,7 @@ elif EVAL:
                     # Also, QAT doesn't have any params to FakeQuant the bias
                     output_min=qat_post_activation_params["quant_dense/post_activation_min"],
                     output_max=qat_post_activation_params["quant_dense/post_activation_max"],
+                    fq_bias=False,
                 ),
                 custom_layers.DenseTFLite(
                     10,
@@ -311,6 +312,7 @@ elif EVAL:
                     kernel_zp=tensor_details[4]["quantization"][1],
                     output_min=qat_post_activation_params["quant_dense_1/post_activation_min"],
                     output_max=qat_post_activation_params["quant_dense_1/post_activation_max"],
+                    fq_bias=False,
                 ),
                 custom_layers.DenseTFLite(
                     10,
@@ -320,6 +322,7 @@ elif EVAL:
                     kernel_zp=tensor_details[6]["quantization"][1],
                     output_min=qat_post_activation_params["quant_dense_2/post_activation_min"],
                     output_max=qat_post_activation_params["quant_dense_2/post_activation_max"],
+                    fq_bias=False,
                 ),
                 custom_layers.DenseTFLite(
                     10,
@@ -329,6 +332,7 @@ elif EVAL:
                     kernel_zp=tensor_details[8]["quantization"][1],
                     output_min=qat_post_activation_params["quant_dense_3/post_activation_min"],
                     output_max=qat_post_activation_params["quant_dense_3/post_activation_max"],
+                    fq_bias=False,
                 ),
             ]
         )
