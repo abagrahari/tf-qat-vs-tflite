@@ -10,18 +10,31 @@ rng = np.random.RandomState(0)
 x = rng.uniform(0, 1, size=(32, 10))
 w = rng.uniform(-1, 1, size=(10, 10))
 N_LAYERS = 5
+
+# As per TfLite's QuantizeModel https://git.io/J4hxt, it seems that a full fp32 forward pass is done
+# after which, quantization parameters are independantly calculated. Then, the model is 'quantized'
+
+# Run fp32 forward pass
+manual_output = x
+fp32_outputs = []
+for _ in range(N_LAYERS):
+    manual_output = tf.matmul(manual_output, w)
+    fp32_outputs.append(manual_output)
+
+# Run quantized pass after 'computing' quantization parameters
 w_quant = tf.quantization.fake_quant_with_min_max_args(
     w, min(np.min(w), -np.max(w)), max(np.max(w), -np.min(w)), narrow_range=True
 )
-manual_output = x
-for _ in range(N_LAYERS):
-    manual_output = tf.quantization.fake_quant_with_min_max_args(
-        manual_output, np.min(manual_output), np.max(manual_output)
-    )
+manual_output = tf.quantization.fake_quant_with_min_max_args(x, np.min(x), np.max(x))
+for i in range(N_LAYERS):
     manual_output = tf.matmul(manual_output, w_quant)
-manual_output = tf.quantization.fake_quant_with_min_max_args(
-    manual_output, np.min(manual_output), np.max(manual_output)
-)
+    manual_output = tf.quantization.fake_quant_with_min_max_args(
+        manual_output,
+        np.min(fp32_outputs[i]),
+        np.max(fp32_outputs[i])
+        # Use min/max of fp32 forward pass for quantization parameters
+    )
+
 # tflite computation
 model = tf.keras.Sequential(
     [
