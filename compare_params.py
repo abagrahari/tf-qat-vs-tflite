@@ -105,7 +105,7 @@ print("TFLite test accuracy:", tflite_model_accuracy)
 print("\nNote: the `Dense2` layer is the third Dense layer")
 print("\nParameters directly from QAT model")
 for weight in qat_model.weights:
-    if "min" in weight.name or "max" in weight.name:
+    if ("min" in weight.name or "max" in weight.name) and "post_activation" in weight.name:
         utils.print_formatted(weight.name[:-2], weight.numpy())
 
 
@@ -189,8 +189,8 @@ print(
 min, max = calculate_min_max_from_tflite(
     tflite_params[0]["input_scale"], tflite_params[0]["input_zp"]
 )
-utils.print_formatted("flatten/input_layer_min", min.numpy())
-utils.print_formatted("flatten/input_layer_max", max.numpy())
+# utils.print_formatted("flatten/input_layer_min", min.numpy())
+# utils.print_formatted("flatten/input_layer_max", max.numpy())
 # Print tflite quantization params
 for i, layer in enumerate(tflite_params):
     if i == 0:
@@ -213,8 +213,9 @@ for i, layer in enumerate(tflite_params):
             assert np.allclose(qat_paper_scale, layer[f"{calc}_scale"], rtol=0, atol=1e-5)
         if calc == "output":
             calc = "post_activation"  # Match QAT print statement
-        utils.print_formatted(f"{name}/{calc}_min", min.numpy())
-        utils.print_formatted(f"{name}/{calc}_max", max.numpy())
+        if "post_activation" in calc:
+            utils.print_formatted(f"{name}/{calc}_min", min.numpy())
+            utils.print_formatted(f"{name}/{calc}_max", max.numpy())
 
 if USE_BIAS:
     print(
