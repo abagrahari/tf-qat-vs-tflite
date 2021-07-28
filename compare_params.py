@@ -19,6 +19,8 @@ import utils
 from custom_layers import (
     calculate_min_max_from_tflite,
     calculate_scale_zp_from_min_max,
+    calculate_nudged_params,
+    calculate_qat_paper_scale_zp_from_min_max,
     fake_quant,
 )
 
@@ -207,7 +209,7 @@ for i, layer in enumerate(tflite_params):
             # Verify that min/max was derived correctly from tflite params, by recalculating
             # the scale param.
             # Does not match up for kernel params, due to narrow_range used in kernel
-            qat_paper_scale, _ = calculate_scale_zp_from_min_max(min, max)
+            qat_paper_scale, _ = calculate_qat_paper_scale_zp_from_min_max(min, max)
             assert np.allclose(qat_paper_scale, layer[f"{calc}_scale"], rtol=0, atol=1e-5)
         if calc == "output":
             calc = "post_activation"  # Match QAT print statement
@@ -229,6 +231,28 @@ if USE_BIAS:
         min, max = calculate_min_max_from_tflite(layer["bias_scale"], layer["bias_zp"])
         utils.print_formatted(f"{name}/bias_min", min.numpy())
         utils.print_formatted(f"{name}/bias_max", max.numpy())
+
+
+post_activation_qat_weights = {"min": [], "max": []}
+for weight in qat_model.weights:
+    if "min" in weight.name and "post_activation" in weight.name:
+        post_activation_qat_weights["min"].append((weight.name[:-2], weight.numpy()))
+    if "max" in weight.name and "post_activation" in weight.name:
+        post_activation_qat_weights["max"].append((weight.name[:-2], weight.numpy()))
+
+
+print("\nParameters from QAT model, adjusted as per tflite methods")
+for min, max in zip(post_activation_qat_weights["min"], post_activation_qat_weights["max"]):
+    params = (min[1], max[1])
+    params = calculate_min_max_from_tflite(*calculate_scale_zp_from_min_max(*params))
+    utils.print_formatted(f"{min[0]}", params[0])
+    utils.print_formatted(f"{max[0]}", params[1])
+
+print("\nParameters from QAT model, nudged as per QAT methods")
+for min, max in zip(post_activation_qat_weights["min"], post_activation_qat_weights["max"]):
+    params = calculate_nudged_params(min[1], max[1])
+    utils.print_formatted(f"{min[0]}", params[0])
+    utils.print_formatted(f"{max[0]}", params[1])
 
 
 # Compare First dense layer outputs

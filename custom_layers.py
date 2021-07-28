@@ -119,6 +119,7 @@ def calculate_min_max_from_tflite(
     # Formula derived from fact that tflite quantizes
     # `real_value = (int8_value - zero_point) * scale`, and setting
     # int8_value to the range possible [minspec, 127] for int8
+    # See https://www.tensorflow.org/lite/performance/quantization_spec#int8_quantized_operator_specifications and https://arxiv.org/pdf/1712.05877.pdf
     min = (min_spec - zero_point) * scale
     max = (127 - zero_point) * scale
     # FakeQuantWithMinMaxVars requires that 0.0 is always in the [min; max] range.
@@ -129,6 +130,56 @@ def calculate_min_max_from_tflite(
 
 
 def calculate_scale_zp_from_min_max(min, max):
+    """Calculate scale and zero-point from asymmetric min/max.
+    Note: will not work for parameters created with narrow_range.
+    """
+    quant_min = -128  # std::numeric_limits<int8_t>::min()
+    quant_max = 127  # std::numeric_limits<int8_t>::max()
+    # scale = (max - min) / (2 ** 8 - 1) # formula from Section 3 in https://arxiv.org/pdf/1712.05877.pdf
+
+    # Below is borrowed from TfLite's GetAsymmetricQuantizationParams https://git.io/JBcVy
+    # Adjust the boundaries to guarantee 0 is included.
+    min = tf.math.minimum(min, 0)
+    max = tf.math.maximum(max, 0)
+    scale = (max - min) / (quant_max - quant_min)
+    zero_point_from_min = quant_min
+    if scale != 0:
+        zero_point_from_min = quant_min - min / scale
+    if zero_point_from_min < quant_min:
+        zero_point = quant_min
+    elif zero_point_from_min > quant_max:
+        zero_point = quant_max
+    else:
+        zero_point = np.round(zero_point_from_min)
+    return scale, int(zero_point)
+
+
+def calculate_nudged_params(min, max, narrow_range=False):
+    """Calculate nudged min,max, and scale from asymmetric min/max."""
+    # Below is borrowed from TF's FakeQuantWithMinMaxArgs https://git.io/JBCs4, https://git.io/JBCiI, https://git.io/JBCsQ
+    quant_min = 1 if narrow_range else 0
+    quant_max = (2 ** 8) - 1  # 255
+
+    # Nudge()
+    scale = (max - min) / (quant_max - quant_min)
+    zero_point_from_min = quant_min - min / scale
+    if zero_point_from_min < quant_min:
+        nudged_zero_point = quant_min
+    elif zero_point_from_min > quant_max:
+        nudged_zero_point = quant_max
+    else:
+        nudged_zero_point = tf.math.round(zero_point_from_min)
+    nudged_zero_point = int(
+        nudged_zero_point
+    )  # will not match zp from GetAsymmetricQuantizationParams b/c of quant_min and quant_max values
+    nudged_min = (quant_min - nudged_zero_point) * scale
+    nudged_max = (quant_max - nudged_zero_point) * scale
+    # end Nudge()
+
+    return nudged_min, nudged_max, scale, nudged_zero_point
+
+
+def calculate_qat_paper_scale_zp_from_min_max(min, max):
     """Calculate scale and zero-point from min/max.
 
     Note: will not work for parameters created with narrow_range.
