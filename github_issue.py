@@ -28,7 +28,7 @@ def calculate_min_max_from_tflite(
     # Formula derived from fact that tflite quantizes
     # `real_value = (int8_value - zero_point) * scale`, and setting
     # int8_value to the range possible [minspec, 127] for int8
-    # See https://www.tensorflow.org/lite/performance/quantization_spec#int8_quantized_operator_specifications  and https://arxiv.org/pdf/1712.05877.pdf
+    # See https://www.tensorflow.org/lite/performance/quantization_spec#int8_quantized_operator_specifications and https://arxiv.org/pdf/1712.05877.pdf
     min = (min_spec - zero_point) * scale
     max = (127 - zero_point) * scale
     # FakeQuantWithMinMaxVars requires that 0.0 is always in the [min; max] range.
@@ -39,14 +39,53 @@ def calculate_min_max_from_tflite(
 
 
 def calculate_scale_zp_from_min_max(min, max):
-    """Calculate scale and zero-point from min/max.
+    """Calculate scale and zero-point from asymmetric min/max.
     Note: will not work for parameters created with narrow_range.
     """
-    # Below formula is from Section 3 in https://arxiv.org/pdf/1712.05877.pdf
-    scale = (max - min) / (2 ** 8 - 1)
-    # Below formula is rearrangment of calculate_min_max_from_tflite
-    zero_point = 127 - max / scale
-    return scale, zero_point
+    quant_min = -128  # std::numeric_limits<int8_t>::min()
+    quant_max = 127  # std::numeric_limits<int8_t>::max()
+    # scale = (max - min) / (2 ** 8 - 1) # formula from Section 3 in https://arxiv.org/pdf/1712.05877.pdf
+
+    # Below is borrowed from TfLite's GetAsymmetricQuantizationParams https://git.io/JBcVy
+    # Adjust the boundaries to guarantee 0 is included.
+    min = tf.math.minimum(min, 0)
+    max = tf.math.maximum(max, 0)
+    scale = (max - min) / (quant_max - quant_min)
+    zero_point_from_min = quant_min
+    if scale != 0:
+        zero_point_from_min = quant_min - min / scale
+    if zero_point_from_min < quant_min:
+        zero_point = quant_min
+    elif zero_point_from_min > quant_max:
+        zero_point = quant_max
+    else:
+        zero_point = np.round(zero_point_from_min)
+    return scale, int(zero_point)
+
+
+def calculate_nudged_params(min, max, narrow_range=False):
+    """Calculate nudged min,max, and scale from asymmetric min/max."""
+    # Below is borrowed from TF's FakeQuantWithMinMaxArgs https://git.io/JBCs4, https://git.io/JBCiI, https://git.io/JBCsQ
+    quant_min = 1 if narrow_range else 0
+    quant_max = (2 ** 8) - 1  # 255
+
+    # Nudge()
+    scale = (max - min) / (quant_max - quant_min)
+    zero_point_from_min = quant_min - min / scale
+    if zero_point_from_min < quant_min:
+        nudged_zero_point = quant_min
+    elif zero_point_from_min > quant_max:
+        nudged_zero_point = quant_max
+    else:
+        nudged_zero_point = tf.math.round(zero_point_from_min)
+    nudged_zero_point = int(
+        nudged_zero_point
+    )  # will not match zp from GetAsymmetricQuantizationParams b/c of quant_min and quant_max values
+    nudged_min = (quant_min - nudged_zero_point) * scale
+    nudged_max = (quant_max - nudged_zero_point) * scale
+    # end Nudge()
+
+    return nudged_min, nudged_max, scale, nudged_zero_point
 
 
 def fake_quant(
@@ -153,25 +192,17 @@ tflite_params[1]["output_zp"] = tensor_details[7]["quantization"][1]
 
 # Use all the mnist train_images
 kernel = base_model.weights[0]  # Get kernel from base model
-# FakeQuant kernel based on params from tflite model
-fq_kernel = fake_quant(
-    kernel,
-    tflite_params[1]["kernel_scale"],
-    tflite_params[1]["kernel_zp"],
-    narrow=True,  # tflite spec says it uses narrow_range for weights, with below value
-    min_spec=-127,
-)
+# As per TfLite's QuantizeModel https://git.io/J4hxt, it seems that a full fp32 forward pass is done first
+# after which, quantization parameters are independantly calculated.
 outputs = []
 for image in train_images:
     # Flatten image
     image = tf.cast(tf.reshape(image, [-1, 784]), tf.float32)
     assert image.shape == (1, 784)
-    fq_input = fake_quant(image, tflite_params[0]["input_scale"], tflite_params[0]["input_zp"])
-    y: tf.Tensor = tf.matmul(fq_input, fq_kernel)
+    y: tf.Tensor = tf.matmul(image, kernel)
     assert y.shape == (1, 10)
     # no bias adddition
     # linear activation function - thus, don't apply anything
-    # Not fakeQuantizing outputs, in order to compare min/max params
     outputs.append(y)
 outputs = np.array(outputs)
 
@@ -184,4 +215,29 @@ print("\nParameters from tflite model")
 params = (tflite_params[1]["output_scale"], tflite_params[1]["output_zp"])
 print(f"Scale: {params[0]}, Zero-point: {params[1]}")
 
-# And, it appears that the tflite model parameters don't match my expected values.
+# ---
+# Let's look at the `max/min` parameters instead.
+#
+# For TfLite - we will compute the `min/max` from the `scale/zp` params.
+#
+# For the manual computation - we will look at the `min/max` of the outputs.
+# We will also convert this `min/max` to `scale/zp`, and then convert back to `min/max`. This is to
+# account for the loss of info when converting from `min/max` to `scale/zp` since `zp` is an `int8`
+
+print("\nParameters from manual computation")
+params = (np.min(outputs), np.max(outputs))
+print(f"True Min: {params[0]}, True Max: {params[1]}")
+
+params = calculate_min_max_from_tflite(*calculate_scale_zp_from_min_max(*params))
+print(f"Adjusted Min: {params[0]}, Adjusted Max: {params[1]}")
+
+params = calculate_nudged_params(np.min(outputs), np.max(outputs))
+print(f"Nudged Min: {params[0]}, Nudged Max: {params[1]}, Scale: {params[2]}")
+
+
+print("\nParameters from tflite model")
+params = (tflite_params[1]["output_scale"], tflite_params[1]["output_zp"])
+params = calculate_min_max_from_tflite(*params)
+print(f"Min: {params[0]}, Max: {params[1]}")
+
+# While the true min/max don't match with tflite, it looks like the 'adjusted' and 'nudged' versions do.
