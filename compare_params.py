@@ -249,7 +249,9 @@ for min, max in zip(post_activation_qat_weights["min"], post_activation_qat_weig
     utils.print_formatted(f"{min[0]}", params[0])
     utils.print_formatted(f"{max[0]}", params[1])
 
-print("\nParameters from QAT model, nudged as per QAT methods")
+print(
+    "\nParameters from QAT model, nudged as per QAT methods. (done internally in fake_qaunt_with_min_max...)    "
+)
 for min, max in zip(post_activation_qat_weights["min"], post_activation_qat_weights["max"]):
     params = calculate_nudged_params(min[1], max[1])
     utils.print_formatted(f"{min[0]}", params[0])
@@ -315,6 +317,47 @@ if not USE_BIAS:
     outputs = np.array(outputs)
 
     # Print input quantization param
-    print("\nParameters from manual computation")
+    print("\nParameters from manual computation and fakeQuant.")
     utils.print_formatted("dense/post_activation_min", np.min(outputs))
     utils.print_formatted("dense/post_activation_max", np.max(outputs))
+
+
+if not USE_BIAS:
+    kernel = base_model.weights[0]
+    outputs = []
+    for image in train_images:
+        # Flatten image
+        image = tf.cast(tf.reshape(image, [-1, 784]), tf.float32)
+        assert image.shape == (1, 784)
+        y: tf.Tensor = tf.matmul(image, kernel)
+        assert y.shape == (1, 10)
+        # no bias adddition
+        # linear activation function
+        outputs.append(y)
+
+    outputs = np.array(outputs)
+
+    # Print quantization param
+    print(
+        "\nParameters from manual computation, adjusted using tflite approach. Should match tflite."
+    )
+    params = (np.min(outputs), np.max(outputs))
+    params = calculate_min_max_from_tflite(*calculate_scale_zp_from_min_max(*params))
+    utils.print_formatted("dense/post_activation_min", params[0])
+    utils.print_formatted("dense/post_activation_max", params[1])
+
+    # Remaining layers
+    for i in [1, 2, 3]:
+        inputs = outputs
+        kernel = base_model.weights[i]
+        outputs = []
+        for input in inputs:
+            y: tf.Tensor = tf.matmul(input, kernel)
+            outputs.append(y)
+
+        outputs = np.array(outputs)
+
+        params = (np.min(outputs), np.max(outputs))
+        params = calculate_min_max_from_tflite(*calculate_scale_zp_from_min_max(*params))
+        utils.print_formatted(f"dense_{i}/post_activation_min", params[0])
+        utils.print_formatted(f"dense_{i}/post_activation_max", params[1])
