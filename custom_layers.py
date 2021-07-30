@@ -130,14 +130,14 @@ def calculate_min_max_from_tflite(
 
 
 def calculate_scale_zp_from_min_max(min, max):
-    """Calculate scale and zero-point from asymmetric min/max.
+    """Calculate scale and zero-point from asymmetric min/max and adjust as tflite does.
     Note: will not work for parameters created with narrow_range.
     """
     quant_min = -128  # std::numeric_limits<int8_t>::min()
     quant_max = 127  # std::numeric_limits<int8_t>::max()
     # scale = (max - min) / (2 ** 8 - 1) # formula from Section 3 in https://arxiv.org/pdf/1712.05877.pdf
 
-    # Below is borrowed from TfLite's GetAsymmetricQuantizationParams https://git.io/JBcVy
+    # Below is borrowed from tflite's GetAsymmetricQuantizationParams https://git.io/JBcVy
     # Adjust the boundaries to guarantee 0 is included.
     min = tf.math.minimum(min, 0)
     max = tf.math.maximum(max, 0)

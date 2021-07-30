@@ -17,35 +17,16 @@ default_8bit_quantize_registry.quantizers.MovingAverageQuantizer = (
 
 def calculate_min_max_for_fake_quant(
     values,
-    num_bits=8,
-    narrow_range=False,
-    symmetric=False,
 ):
     """Calculate min/max quantization parameters for use in tf.quantization.fake_quant_with_min_max_args.
     Calculates as per AllValuesQuantize implementation https://git.io/JBVeP
     Args:
       values: a tensor containing values to be quantized.
-      num_bits: Number of bits to use for quantization, must be between 2 and 8.
-      narrow_range: Whether to use the narrow quantization range
-        [1; 2^num_bits - 1] or wide range [0; 2^num_bits - 1].
-      symmetric: If true, use symmetric quantization limits instead of training
-        the minimum and maximum of each quantization range separately.
     Returns:
       min/max parameters for use in fake_quantize_with... as per QAT.
     """
     min = np.min(values)
     max = np.max(values)
-    if symmetric:
-        if narrow_range:
-            min_max_ratio = -1
-        else:
-            # In two's complement notation, the negative range is slightly larger
-            # than the positive range.
-            min_max_ratio = -((1 << num_bits) - 2) / (1 << num_bits)
-        # TFLite requires that 0.0 is always in the [min; max] range. Because
-        # batch_min <= batch_max, it follows that range_min <= 0 <= range_max.
-        min = tf.math.minimum(min, max / min_max_ratio)
-        max = tf.math.maximum(max, min * min_max_ratio)
     # TFLite requires that 0.0 if always in the [min; max] range.
     min = tf.math.minimum(min, 0.0)
     max = tf.math.maximum(max, 0.0)
