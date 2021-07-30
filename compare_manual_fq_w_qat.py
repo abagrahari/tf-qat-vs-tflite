@@ -10,38 +10,69 @@ from tensorflow_model_optimization.python.core.quantization.keras.default_8bit i
 )
 import utils
 
-# MonkeyPatch to use AllValuesQuantizer
 default_8bit_quantize_registry.quantizers.MovingAverageQuantizer = (
     tfmot.quantization.keras.quantizers.AllValuesQuantizer
 )
 
 
-# manual computation
+def calculate_min_max_for_fake_quant(
+    values,
+    num_bits=8,
+    narrow_range=False,
+    symmetric=False,
+):
+    """Calculate min/max quantization parameters for use in tf.quantization.fake_quant_with_min_max_args.
+    Calculates as per AllValuesQuantize implementation https://git.io/JBVeP
+    Args:
+      values: a tensor containing values to be quantized.
+      num_bits: Number of bits to use for quantization, must be between 2 and 8.
+      narrow_range: Whether to use the narrow quantization range
+        [1; 2^num_bits - 1] or wide range [0; 2^num_bits - 1].
+      symmetric: If true, use symmetric quantization limits instead of training
+        the minimum and maximum of each quantization range separately.
+    Returns:
+      min/max parameters for use in fake_quantize_with... as per QAT.
+    """
+    min = np.min(values)
+    max = np.max(values)
+    if symmetric:
+        if narrow_range:
+            min_max_ratio = -1
+        else:
+            # In two's complement notation, the negative range is slightly larger
+            # than the positive range.
+            min_max_ratio = -((1 << num_bits) - 2) / (1 << num_bits)
+        # TFLite requires that 0.0 is always in the [min; max] range. Because
+        # batch_min <= batch_max, it follows that range_min <= 0 <= range_max.
+        min = tf.math.minimum(min, max / min_max_ratio)
+        max = tf.math.maximum(max, min * min_max_ratio)
+    # TFLite requires that 0.0 if always in the [min; max] range.
+    min = tf.math.minimum(min, 0.0)
+    max = tf.math.maximum(max, 0.0)
+    return min.numpy(), max.numpy()
+
+
 rng = np.random.RandomState(0)
 x = rng.uniform(0, 1, size=(32, 10))
 w = rng.uniform(-1, 1, size=(10, 10))
 N_LAYERS = 5
 
+##################################################
+# Manual computation - QAT
+##################################################
+# QAT performs fake_quantizing during the forward pass
+# and fake_quant_with_min_max internally nudges the parameters
 w_quant = tf.quantization.fake_quant_with_min_max_args(
     w, min(np.min(w), -np.max(w)), max(np.max(w), -np.min(w)), narrow_range=True
 )
 manual_output = x
-print("\nFrom Manual computation w/ fake_quant alongside")
-utils.print_formatted(f"input_min", np.min(manual_output))
-utils.print_formatted(f"input_max", np.max(manual_output))
 for i in range(N_LAYERS):
-    if i > 0:
-        utils.print_formatted(f"dense_{i-1}/post_activation_min", np.min(manual_output))
-        utils.print_formatted(f"dense_{i-1}/post_activation_max", np.max(manual_output))
     manual_output = tf.quantization.fake_quant_with_min_max_args(
-        manual_output, np.min(manual_output), np.max(manual_output)
+        manual_output, *calculate_min_max_for_fake_quant(manual_output)
     )
     manual_output = tf.matmul(manual_output, w_quant)
-
-utils.print_formatted(f"dense_{i}/post_activation_min", np.min(manual_output))
-utils.print_formatted(f"dense_{i}/post_activation_max", np.max(manual_output))
 manual_output = tf.quantization.fake_quant_with_min_max_args(
-    manual_output, np.min(manual_output), np.max(manual_output)
+    manual_output, *calculate_min_max_for_fake_quant(manual_output)
 )
 
 # QAT computation
@@ -57,16 +88,9 @@ model.build(x.shape)
 qat_model = tfmot.quantization.keras.quantize_model(model)
 # Calibrate QAT model
 qat_model(x, training=True)
-print("\nFrom QAT Model")
-for weight in qat_model.weights:
-    if ("min" in weight.name or "max" in weight.name) and (
-        "post_activation" in weight.name or "quantize_layer" in weight.name
-    ):
-        utils.print_formatted(weight.name[:-2], weight.numpy())
 
 # Compare outputs
 qat_output = qat_model(x)
 manual_output = np.array(manual_output).flatten()
 qat_output = np.array(qat_output).flatten()
-print()
 utils.output_stats(manual_output, qat_output, "Manual w/ FakeQuant vs QAT", 1e-2, 0)
