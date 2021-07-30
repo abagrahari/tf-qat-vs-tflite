@@ -49,6 +49,27 @@ for i in range(N_LAYERS):
 
 
 ##################################################
+# Manual computation, w/o fp32 fwd pass - tflite
+##################################################
+# Similar to above but without a fp32 forward pass
+# i.e. fake_quantize during the forward pass, while still nudging parameters as per tflite,
+# and using fake_quant_with_min_max
+w_quant = tf.quantization.fake_quant_with_min_max_args(
+    w, min(np.min(w), -np.max(w)), max(np.max(w), -np.min(w)), narrow_range=True
+)
+manual_output_no_fp32_pass = x
+for i in range(N_LAYERS):
+    p = adjust_params(np.min(manual_output_no_fp32_pass), np.max(manual_output_no_fp32_pass))
+    manual_output_no_fp32_pass = tf.quantization.fake_quant_with_min_max_args(
+        manual_output_no_fp32_pass, p[0], p[1]
+    )
+    manual_output_no_fp32_pass = tf.matmul(manual_output_no_fp32_pass, w_quant)
+p = adjust_params(np.min(manual_output_no_fp32_pass), np.max(manual_output_no_fp32_pass))
+manual_output_no_fp32_pass = tf.quantization.fake_quant_with_min_max_args(
+    manual_output_no_fp32_pass, p[0], p[1]
+)
+
+##################################################
 # tflite computation
 ##################################################
 model = tf.keras.Sequential(
@@ -89,5 +110,9 @@ tflite_output = (tflite_output.astype(np.float32) - output_zero_point) * output_
 
 # Compare outputs
 manual_output = np.array(manual_output).flatten()
+manual_output_no_fp32_pass = np.array(manual_output_no_fp32_pass).flatten()
 tflite_output = np.array(tflite_output).flatten()
 utils.output_stats(manual_output, tflite_output, "Manual vs tflite", 1e-2, 0)
+utils.output_stats(
+    manual_output_no_fp32_pass, tflite_output, "Manual w/o fp32 pass vs tflite", 1e-2, 0
+)
