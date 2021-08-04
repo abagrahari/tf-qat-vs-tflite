@@ -25,7 +25,9 @@ def adjust_params(min, max):
 ##################################################
 # Manual computation - tflite
 ##################################################
+
 # TODO: adapt from compare_manual_w_tflite.py
+
 ##################################################
 # tflite computation
 ##################################################
@@ -54,13 +56,8 @@ model = tf.keras.Sequential(
         ),
     ]
 )
-
 model.build(inputs.shape)
-print(inputs.shape)
-model.summary()
 manual_output = model(inputs)
-print(manual_output)
-# TODO is initial_state needed if predicting using the lmu model?
 
 
 def representative_dataset():
@@ -81,16 +78,18 @@ interpreter.allocate_tensors()
 input_details = interpreter.get_input_details()[0]
 output_details = interpreter.get_output_details()[0]
 
-
-
-inputs_quant = inputs[[0]].astype(np.float32)
-# input_scale, input_zero_point = input_details["quantization"]
-# inputs_quant = np.round(inputs / input_scale + input_zero_point).astype(np.uint8)
-interpreter.set_tensor(input_details["index"], inputs_quant)
-interpreter.invoke()
-tflite_output = interpreter.get_tensor(output_details["index"])
-# output_scale, output_zero_point = output_details["quantization"]
-# tflite_output = (tflite_output.astype(np.float32) - output_zero_point) * output_scale
+tflite_output = []
+for input in inputs:
+    # input_scale, input_zero_point = input_details["quantization"]
+    # input = np.round(input / input_scale + input_zero_point).astype(np.uint8)
+    input = np.expand_dims(input, axis=0).astype(input_details["dtype"])
+    interpreter.set_tensor(input_details["index"], input)
+    interpreter.invoke()
+    output = interpreter.get_tensor(output_details["index"])[0]
+    # output_scale, output_zero_point = output_details["quantization"]
+    # output = (output.astype(np.float32) - output_zero_point) * output_scale
+    tflite_output.append(output)
+tflite_output = np.array(tflite_output)
 
 # Compare outputs
 manual_output = np.array(manual_output).flatten()
