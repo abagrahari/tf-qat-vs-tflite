@@ -52,12 +52,6 @@ model = tf.keras.Sequential(
             input_to_hidden=True,
             # TODO: specify kernel intializer and recurrent initializer
         ),
-        tf.keras.layers.Dense(
-            10,
-            use_bias=False,
-            # TODO: try with bias
-            kernel_initializer=tf.initializers.constant(w),
-        ),
     ]
 )
 
@@ -81,13 +75,15 @@ converter.optimizations = [tf.lite.Optimize.DEFAULT]
 # converter.inference_output_type = tf.uint8
 # converter.representative_dataset = representative_dataset
 
-interpreter = tf.lite.Interpreter(model_content=converter.convert())
+tflite_model = converter.convert()
+interpreter = tf.lite.Interpreter(model_content=tflite_model)
 interpreter.allocate_tensors()
 input_details = interpreter.get_input_details()[0]
 output_details = interpreter.get_output_details()[0]
 
 
-inputs_quant = inputs.astype(np.float32)
+
+inputs_quant = inputs[[0]].astype(np.float32)
 # input_scale, input_zero_point = input_details["quantization"]
 # inputs_quant = np.round(inputs / input_scale + input_zero_point).astype(np.uint8)
 interpreter.set_tensor(input_details["index"], inputs_quant)
