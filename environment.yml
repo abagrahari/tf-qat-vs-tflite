@@ -9,4 +9,5 @@ dependencies:
   - pip:
     - ipywidgets
     - jupyterlab
+    - keras-lmu
     - tensorflow_model_optimization==0.5.*
