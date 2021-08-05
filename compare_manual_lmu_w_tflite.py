@@ -3,7 +3,7 @@ import os
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 import numpy as np
 import tensorflow as tf
-
+import nengo_edge.layers as nengo_edge
 import keras_lmu
 
 
@@ -24,7 +24,7 @@ inputs = rng.uniform(-0.5, 0.5, size=(320, TIMESTEPS, INPUT_D))
 model = tf.keras.Sequential(
     [
         tf.keras.layers.InputLayer((TIMESTEPS, INPUT_D)),
-        tf.keras.layers.RNN(
+        nengo_edge.RNN(
             keras_lmu.LMUCell(
                 memory_d=1,
                 order=4,
@@ -37,8 +37,7 @@ model = tf.keras.Sequential(
                 memory_to_memory=True,
                 input_to_hidden=True,
                 # TODO: specify kernel intializer and recurrent initializer
-            ),
-            # unroll=True,
+            )
         ),
     ]
 )
@@ -53,15 +52,12 @@ def representative_dataset():
 
 converter = tf.lite.TFLiteConverter.from_keras_model(model)
 converter.optimizations = [tf.lite.Optimize.DEFAULT]
-# converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
-# converter.inference_input_type = tf.uint8
-# converter.inference_output_type = tf.uint8
-# converter.representative_dataset = representative_dataset
+converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
+converter.inference_input_type = tf.uint8
+converter.inference_output_type = tf.uint8
+converter.representative_dataset = representative_dataset
 
 tflite_model = converter.convert()
-with open("saved_models/lmu.tflite", "wb") as f:
-    f.write(tflite_model)
-
 print("---------Converted to tflite!---------")
 
 interpreter = tf.lite.Interpreter(model_content=tflite_model)
