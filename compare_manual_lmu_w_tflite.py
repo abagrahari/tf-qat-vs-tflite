@@ -1,11 +1,12 @@
 import os
 
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
+import keras_lmu
+import nengo_edge
 import numpy as np
 import tensorflow as tf
-import nengo_edge.layers as nengo_edge
-import keras_lmu
 
+import utils
 
 tf.random.set_seed(3)
 rng = np.random.RandomState(3)
@@ -21,28 +22,26 @@ TIMESTEPS = 1
 inputs = rng.uniform(-0.5, 0.5, size=(320, TIMESTEPS, INPUT_D))
 # 320 different inputs/sequences, of TIMESTEPS timesteps, and INPUT_D dimensions/features in each input
 
-model = tf.keras.Sequential(
-    [
-        tf.keras.layers.InputLayer((TIMESTEPS, INPUT_D)),
-        nengo_edge.RNN(
-            keras_lmu.LMUCell(
-                memory_d=1,
-                order=4,
-                theta=5,
-                hidden_cell=tf.keras.layers.SimpleRNNCell(
-                    units=10,
-                    activation="relu",
-                ),
-                hidden_to_memory=True,
-                memory_to_memory=True,
-                input_to_hidden=True,
-                # TODO: specify kernel intializer and recurrent initializer
-            )
+inp = tf.keras.Input((TIMESTEPS, INPUT_D))
+rnn = nengo_edge.layers.RNN(
+    keras_lmu.LMUCell(
+        memory_d=1,
+        order=4,
+        theta=5,
+        hidden_cell=tf.keras.layers.SimpleRNNCell(
+            units=10,
+            activation="relu",
         ),
-    ]
+        hidden_to_memory=True,
+        memory_to_memory=True,
+        input_to_hidden=True,
+        # TODO: specify kernel intializer and recurrent initializer
+    )
 )
-model.build(inputs.shape)
-model_output = model(inputs)
+out = rnn(inp, initial_state=[tf.zeros((1, 10)), tf.zeros((1, 4))])
+model = tf.keras.Model(inp, out)
+
+model_output = model.predict(inputs, batch_size=1)
 
 
 def representative_dataset():
@@ -52,9 +51,9 @@ def representative_dataset():
 
 converter = tf.lite.TFLiteConverter.from_keras_model(model)
 converter.optimizations = [tf.lite.Optimize.DEFAULT]
-converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
-converter.inference_input_type = tf.uint8
-converter.inference_output_type = tf.uint8
+# converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
+# converter.inference_input_type = tf.uint8
+# converter.inference_output_type = tf.uint8
 converter.representative_dataset = representative_dataset
 
 tflite_model = converter.convert()
@@ -79,4 +78,4 @@ tflite_output = np.array(tflite_output)
 # Compare outputs
 model_output = np.array(model_output).flatten()
 tflite_output = np.array(tflite_output).flatten()
-print("Done.")
+utils.output_stats(model_output, tflite_output, "Manual LMU vs tflite", 1e-2, 0)
