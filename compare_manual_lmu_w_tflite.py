@@ -41,18 +41,21 @@ inputs = rng.uniform(-0.5, 0.5, size=(320, TIMESTEPS, INPUT_D))
 model = tf.keras.Sequential(
     [
         tf.keras.layers.InputLayer((TIMESTEPS, INPUT_D)),
-        keras_lmu.LMU(
-            memory_d=1,
-            order=4,
-            theta=5,
-            hidden_cell=tf.keras.layers.SimpleRNNCell(
-                units=10,
-                activation="relu",
+        tf.keras.layers.RNN(
+            keras_lmu.LMUCell(
+                memory_d=1,
+                order=4,
+                theta=5,
+                hidden_cell=tf.keras.layers.SimpleRNNCell(
+                    units=10,
+                    activation="relu",
+                ),
+                hidden_to_memory=True,
+                memory_to_memory=True,
+                input_to_hidden=True,
+                # TODO: specify kernel intializer and recurrent initializer
             ),
-            hidden_to_memory=True,
-            memory_to_memory=True,
-            input_to_hidden=True,
-            # TODO: specify kernel intializer and recurrent initializer
+            # unroll=True,
         ),
     ]
 )
@@ -73,6 +76,8 @@ converter.optimizations = [tf.lite.Optimize.DEFAULT]
 # converter.representative_dataset = representative_dataset
 
 tflite_model = converter.convert()
+with open("saved_models/lmu.tflite", "wb") as f:
+    f.write(tflite_model)
 interpreter = tf.lite.Interpreter(model_content=tflite_model)
 interpreter.allocate_tensors()
 input_details = interpreter.get_input_details()[0]
