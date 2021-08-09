@@ -10,20 +10,23 @@ import utils
 
 tf.random.set_seed(3)
 rng = np.random.RandomState(3)
-w = rng.uniform(-1, 1, size=(10, 10))
 
-##################################################
-# tflite computation
-##################################################
-# Define keras model with an LMU
 INPUT_D = 4
 TIMESTEPS = 1
 
 inputs = rng.uniform(-0.5, 0.5, size=(320, TIMESTEPS, INPUT_D))
 # 320 different inputs/sequences, of TIMESTEPS timesteps, and INPUT_D dimensions/features in each input
 
+lmu_kernel = rng.uniform(-1, 1, size=(14, 1))
+lmu_recurrent = rng.uniform(-1, 1, size=(4, 1))
+dense_kernel = rng.uniform(-1, 1, size=(10, 10))
+
+##################################################
+# tflite computation
+##################################################
+# Define keras model with an LMU
 inp = tf.keras.Input((TIMESTEPS, INPUT_D))
-rnn = nengo_edge.layers.RNN(
+x = nengo_edge.layers.RNN(
     keras_lmu.LMUCell(
         memory_d=1,
         order=4,
@@ -35,11 +38,18 @@ rnn = nengo_edge.layers.RNN(
         hidden_to_memory=True,
         memory_to_memory=True,
         input_to_hidden=True,
-        # TODO: specify kernel intializer and recurrent initializer
+        kernel_initializer=tf.initializers.constant(lmu_kernel),
+        recurrent_initializer=tf.initializers.constant(lmu_recurrent),
     )
 )
-out = rnn(inp, initial_state=[tf.zeros((1, 10)), tf.zeros((1, 4))])
-model = tf.keras.Model(inp, out)
+x = x(inp, initial_state=[tf.zeros((1, 10)), tf.zeros((1, 4))])
+x = tf.keras.layers.Dense(
+    10,
+    activation="linear",
+    use_bias=False,
+    kernel_initializer=tf.initializers.constant(dense_kernel),
+)(x)
+model = tf.keras.Model(inp, x)
 
 model_output = model.predict(inputs, batch_size=1)
 
@@ -57,14 +67,11 @@ converter.inference_output_type = tf.uint8
 converter.representative_dataset = representative_dataset
 
 tflite_model = converter.convert()
-print("---------Converted to tflite!---------")
 
 interpreter = tf.lite.Interpreter(model_content=tflite_model)
 interpreter.allocate_tensors()
 input_details = interpreter.get_input_details()[0]
 output_details = interpreter.get_output_details()[0]
-
-print("---------Allocated tensors---------")
 
 tflite_output = []
 for input in inputs:
