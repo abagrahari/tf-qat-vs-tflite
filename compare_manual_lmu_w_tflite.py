@@ -5,8 +5,18 @@ import keras_lmu
 import nengo_edge
 import numpy as np
 import tensorflow as tf
+from custom_layers import calculate_min_max_from_tflite, calculate_scale_zp_from_min_max
 
 import utils
+
+
+def adjust_params(min, max):
+    """Adjust quantization parameters as tflite does"""
+    return [
+        t.numpy()
+        for t in calculate_min_max_from_tflite(*calculate_scale_zp_from_min_max(min, max))
+    ]
+
 
 tf.random.set_seed(3)
 rng = np.random.RandomState(3)
@@ -20,6 +30,33 @@ inputs = rng.uniform(-0.5, 0.5, size=(320, TIMESTEPS, INPUT_D))
 lmu_kernel = rng.uniform(-1, 1, size=(14, 1))
 lmu_recurrent = rng.uniform(-1, 1, size=(4, 1))
 dense_kernel = rng.uniform(-1, 1, size=(10, 10))
+
+##################################################
+# Manual computation - mimicking tflite
+##################################################
+# As per TfLite's QuantizeModel https://git.io/J4hxt, it seems that a full fp32 forward pass is done
+# after which, quantization parameters are independantly calculated. Then, the model is 'quantized'
+
+# Run fp32 forward pass
+manual_output = inputs
+fp32_outputs = []
+
+# Concat op
+strided_slice_output = rng.uniform(-1, 1, size=(1, 4))  # TODO: delete this line
+manual_output = tf.concat([strided_slice_output, tf.zeros((1, 10))], axis=1)
+# FC1 (lmu_kernel matches quantized wieghts in tflite)
+manual_output = tf.matmul(manual_output, lmu_kernel)
+# FC2
+# TODO: is this the right kernel?
+manual_output = tf.matmul(manual_output, lmu_recurrent)
+# Concat op
+manual_output = tf.concat([strided_slice_output, manual_output], axis=1)
+# FC (relu)
+# TODO
+# FC (Dense layer)
+manual_output = tf.matmul(manual_output, dense_kernel)
+
+fp32_outputs.append(manual_output)
 
 ##################################################
 # tflite computation
@@ -67,6 +104,9 @@ converter.inference_output_type = tf.uint8
 converter.representative_dataset = representative_dataset
 
 tflite_model = converter.convert()
+
+with open("saved_models/lmu.tflite", "wb") as f:
+    f.write(tflite_model)
 
 interpreter = tf.lite.Interpreter(model_content=tflite_model)
 interpreter.allocate_tensors()
