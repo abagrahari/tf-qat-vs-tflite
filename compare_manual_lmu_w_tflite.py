@@ -29,6 +29,8 @@ inputs = rng.uniform(-0.5, 0.5, size=(320, TIMESTEPS, INPUT_D))
 
 lmu_kernel = rng.uniform(-1, 1, size=(14, 1))
 lmu_recurrent = rng.uniform(-1, 1, size=(4, 1))
+hidden_kernel = rng.uniform(-1, 1, size=(8, 10))
+hidden_recurrent = rng.uniform(-1, 1, size=(10, 10))
 dense_kernel = rng.uniform(-1, 1, size=(10, 10))
 
 ##################################################
@@ -71,6 +73,8 @@ x = nengo_edge.layers.RNN(
         hidden_cell=tf.keras.layers.SimpleRNNCell(
             units=10,
             activation="relu",
+            kernel_initializer=tf.initializers.constant(hidden_kernel),
+            recurrent_initializer=tf.initializers.constant(hidden_recurrent),
         ),
         hidden_to_memory=True,
         memory_to_memory=True,
@@ -129,4 +133,5 @@ tflite_output = np.array(tflite_output)
 # Compare outputs
 model_output = np.array(model_output).flatten()
 tflite_output = np.array(tflite_output).flatten()
+utils.output_stats(model_output, tflite_output, "Keras model vs tflite", 1e-2, 0)
 utils.output_stats(model_output, tflite_output, "Manual LMU vs tflite", 1e-2, 0)
