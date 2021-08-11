@@ -125,11 +125,10 @@ def representative_dataset():
 
 converter = tf.lite.TFLiteConverter.from_keras_model(model)
 converter.optimizations = [tf.lite.Optimize.DEFAULT]
-# TODO: Temporarily comment out quantizaiton
-# converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
-# converter.inference_input_type = tf.uint8
-# converter.inference_output_type = tf.uint8
-# converter.representative_dataset = representative_dataset
+converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
+converter.inference_input_type = tf.uint8
+converter.inference_output_type = tf.uint8
+converter.representative_dataset = representative_dataset
 
 tflite_model = converter.convert()
 
@@ -145,14 +144,14 @@ output_details = interpreter.get_output_details()[0]
 
 tflite_output = []
 for input in inputs:
-    # input_scale, input_zero_point = input_details["quantization"]
-    # input = np.round(input / input_scale + input_zero_point).astype(np.uint8)
+    input_scale, input_zero_point = input_details["quantization"]
+    input = np.round(input / input_scale + input_zero_point).astype(np.uint8)
     input = np.expand_dims(input, axis=0).astype(input_details["dtype"])
     interpreter.set_tensor(input_details["index"], input)
     interpreter.invoke()
     output = interpreter.get_tensor(output_details["index"])[0]
-    # output_scale, output_zero_point = output_details["quantization"]
-    # output = (output.astype(np.float32) - output_zero_point) * output_scale
+    output_scale, output_zero_point = output_details["quantization"]
+    output = (output.astype(np.float32) - output_zero_point) * output_scale
     tflite_output.append(output)
 tflite_output = np.array(tflite_output)
 
