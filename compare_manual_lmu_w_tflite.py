@@ -28,7 +28,7 @@ inputs = rng.uniform(-0.5, 0.5, size=(320, TIMESTEPS, INPUT_D))
 # 320 different inputs/sequences, of TIMESTEPS timesteps, and INPUT_D dimensions/features in each input
 
 lmu_kernel = rng.uniform(-1, 1, size=(14, 1))
-lmu_recurrent = rng.uniform(-1, 1, size=(4, 1))
+lmu_recurrent = rng.uniform(-1, 1, size=(1, 4))
 hidden_kernel = rng.uniform(-1, 1, size=(8, 10))
 hidden_recurrent = rng.uniform(-1, 1, size=(10, 10))
 dense_kernel = rng.uniform(-1, 1, size=(10, 10))
@@ -40,25 +40,32 @@ dense_kernel = rng.uniform(-1, 1, size=(10, 10))
 # after which, quantization parameters are independantly calculated. Then, the model is 'quantized'
 
 # Run fp32 forward pass
-manual_output = inputs
-fp32_outputs = []
-
+# TODO run on all 320 inputs
+strided_slice_output = tf.strided_slice(
+    inputs[[0]],
+    # Settings from tflite model
+    begin=[0, 0, 0],
+    end=[0, 1, 4],
+    strides=[1, 1, 1],
+    begin_mask=5,
+    ellipsis_mask=0,
+    end_mask=5,
+    new_axis_mask=0,
+    shrink_axis_mask=2,
+).numpy()
 # Concat op
-strided_slice_output = rng.uniform(-1, 1, size=(1, 4))  # TODO: delete this line
 manual_output = tf.concat([strided_slice_output, tf.zeros((1, 10))], axis=1)
 # FC1 (lmu_kernel matches quantized wieghts in tflite)
 manual_output = tf.matmul(manual_output, lmu_kernel)
 # FC2
-# TODO: is this the right kernel?
 manual_output = tf.matmul(manual_output, lmu_recurrent)
 # Concat op
 manual_output = tf.concat([strided_slice_output, manual_output], axis=1)
 # FC (relu)
-# TODO
+manual_output = tf.matmul(manual_output, hidden_kernel)
+manual_output = tf.nn.relu(manual_output)
 # FC (Dense layer)
 manual_output = tf.matmul(manual_output, dense_kernel)
-
-fp32_outputs.append(manual_output)
 
 ##################################################
 # tflite computation
@@ -131,7 +138,10 @@ for input in inputs:
 tflite_output = np.array(tflite_output)
 
 # Compare outputs
+manual_output = np.array(manual_output).flatten()
 model_output = np.array(model_output).flatten()
 tflite_output = np.array(tflite_output).flatten()
 utils.output_stats(model_output, tflite_output, "Keras model vs tflite", 1e-2, 0)
-utils.output_stats(model_output, tflite_output, "Manual LMU vs tflite", 1e-2, 0)
+print(manual_output.shape, model_output.shape)
+utils.output_stats(manual_output, model_output[:10], "Manual LMU vs Keras Model (10)", 1e-2, 0)
+utils.output_stats(manual_output, tflite_output[:10], "Manual LMU vs tflite (10)", 1e-2, 0)
