@@ -32,7 +32,15 @@ lmu_recurrent = rng.uniform(-1, 1, size=(1, 4))
 hidden_kernel = rng.uniform(-1, 1, size=(8, 10))
 hidden_recurrent = rng.uniform(-1, 1, size=(10, 10))
 dense_kernel = rng.uniform(-1, 1, size=(10, 10))
-
+# tflite has some wieghts, which I don't know where it came from
+tflite_fc2_weights = np.array(
+    [
+        [0.20077991485595703],
+        [-0.4733007252216339],
+        [0.5095000863075256],
+        [-0.12802784144878387],
+    ]
+).transpose()
 ##################################################
 # Manual computation - mimicking tflite
 # Using settings from tflite model to recreate tflite model
@@ -62,10 +70,10 @@ for input in inputs:
     # FC1 (lmu_kernel matches wieghts in tflite)
     manual_output = tf.matmul(manual_output, lmu_kernel)
     # FC2 #TODO: lmu_recurrent does not match weights in tflite
+    manual_output = tf.matmul(manual_output, tflite_fc2_weights)
     # TODO: where are the weights in tflite from??
-    manual_output = tf.matmul(manual_output, lmu_recurrent)
     # Concat op
-    manual_output = tf.concat([strided_slice_output, manual_output], axis=1)
+    manual_output = tf.concat([manual_output, strided_slice_output], axis=1)
     # FC (relu) (hidden_kernel matches weights in tflite)
     manual_output = tf.matmul(manual_output, hidden_kernel)
     manual_output = tf.nn.relu(manual_output)
@@ -125,6 +133,8 @@ converter.optimizations = [tf.lite.Optimize.DEFAULT]
 
 tflite_model = converter.convert()
 
+if not os.path.exists("saved_models"):
+    os.makedirs("saved_models")
 with open("saved_models/lmu.tflite", "wb") as f:
     f.write(tflite_model)
 
