@@ -137,19 +137,32 @@ for input in inputs:
         new_axis_mask=0,
         shrink_axis_mask=2,
     ).numpy()
+
+    p = adjust_params(np.min(strided_slice_outputs), np.max(strided_slice_outputs))
+    strided_slice_output = tf.quantization.fake_quant_with_min_max_args(
+        strided_slice_output, p[0], p[1]
+    )
     # Concat op
     x = tf.concat([strided_slice_output, tf.zeros((1, 10))], axis=1)
     # FC1 (lmu_kernel matches wieghts in tflite)
     x = tf.matmul(x, lmu_kernel_quant)
+    p = adjust_params(np.min(fc1_outputs), np.max(fc1_outputs))
+    x = tf.quantization.fake_quant_with_min_max_args(x, p[0], p[1])
     # FC2
     x = tf.matmul(x, tflite_fc2_weights_quant)
+    p = adjust_params(np.min(fc2_outputs), np.max(fc2_outputs))
+    x = tf.quantization.fake_quant_with_min_max_args(x, p[0], p[1])
     # Concat op
     x = tf.concat([x, strided_slice_output], axis=1)
     # FC (relu) (hidden_kernel matches weights in tflite)
     x = tf.matmul(x, hidden_kernel_quant)
     x = tf.nn.relu(x)
+    p = adjust_params(np.min(fc_relu_outputs), np.max(fc_relu_outputs))
+    x = tf.quantization.fake_quant_with_min_max_args(x, p[0], p[1])
     # FC (Dense layer) (dense_kernel matches weights in tflite)
     x = tf.matmul(x, dense_kernel_quant)
+    p = adjust_params(np.min(fc_dense_outputs), np.max(fc_dense_outputs))
+    x = tf.quantization.fake_quant_with_min_max_args(x, p[0], p[1])
     manual_outputs.append(x)
 
 ##################################################
