@@ -1,3 +1,4 @@
+from operator import concat
 import os
 
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
@@ -32,7 +33,8 @@ lmu_recurrent = rng.uniform(-1, 1, size=(1, 4))
 hidden_kernel = rng.uniform(-1, 1, size=(8, 10))
 hidden_recurrent = rng.uniform(-1, 1, size=(10, 10))
 dense_kernel = rng.uniform(-1, 1, size=(10, 10))
-# tflite has some wieghts, which I don't know where it came from
+# TODO: where are these weights in unquantized tflite model from??
+# They also match the weights in the normal Keras model, but don't match expected lmu_recurrent weights
 tflite_fc2_weights = np.array(
     [
         [0.20077991485595703],
@@ -48,7 +50,13 @@ tflite_fc2_weights = np.array(
 # Similar approach to compare_manual_w_tflite.py
 
 # Run fp32 forward pass
-manual_outputs = []
+strided_slice_outputs = []
+concat1_outputs = []
+fc1_outputs = []
+fc2_outputs = []
+concact2_outputs = []
+fc_relu_outputs = []
+fc_dense_outputs = []
 
 for input in inputs:
     # run on all inputs
@@ -65,23 +73,59 @@ for input in inputs:
         new_axis_mask=0,
         shrink_axis_mask=2,
     ).numpy()
+    strided_slice_outputs.append(strided_slice_output)
     # Concat op
-    manual_output = tf.concat([strided_slice_output, tf.zeros((1, 10))], axis=1)
+    x = tf.concat([strided_slice_output, tf.zeros((1, 10))], axis=1)
+    concat1_outputs.append(x)
     # FC1 (lmu_kernel matches wieghts in tflite)
-    manual_output = tf.matmul(manual_output, lmu_kernel)
-    # FC2 #TODO: lmu_recurrent does not match weights in tflite
-    manual_output = tf.matmul(manual_output, tflite_fc2_weights)
-    # TODO: where are the weights in tflite from??
+    x = tf.matmul(x, lmu_kernel)
+    fc1_outputs.append(x)
+    # FC2
+    x = tf.matmul(x, tflite_fc2_weights)
+    fc2_outputs.append(x)
     # Concat op
-    manual_output = tf.concat([manual_output, strided_slice_output], axis=1)
+    x = tf.concat([x, strided_slice_output], axis=1)
+    concact2_outputs.append(x)
     # FC (relu) (hidden_kernel matches weights in tflite)
-    manual_output = tf.matmul(manual_output, hidden_kernel)
-    manual_output = tf.nn.relu(manual_output)
+    x = tf.matmul(x, hidden_kernel)
+    x = tf.nn.relu(x)
+    fc_relu_outputs.append(x)
     # FC (Dense layer) (dense_kernel matches weights in tflite)
-    manual_output = tf.matmul(manual_output, dense_kernel)
-    manual_outputs.append(manual_output)
+    x = tf.matmul(x, dense_kernel)
+    fc_dense_outputs.append(x)
 
-# TODO: quantized forward pass
+# Run quantized forward pass
+# TODO: finish
+manual_outputs = []
+for input in inputs:
+    # run on all inputs
+    input = np.expand_dims(input, axis=0)
+    strided_slice_output = tf.strided_slice(
+        input,
+        # Settings from tflite model
+        begin=[0, 0, 0],
+        end=[0, 1, 4],
+        strides=[1, 1, 1],
+        begin_mask=5,
+        ellipsis_mask=0,
+        end_mask=5,
+        new_axis_mask=0,
+        shrink_axis_mask=2,
+    ).numpy()
+    # Concat op
+    x = tf.concat([strided_slice_output, tf.zeros((1, 10))], axis=1)
+    # FC1 (lmu_kernel matches wieghts in tflite)
+    x = tf.matmul(x, lmu_kernel)
+    # FC2
+    x = tf.matmul(x, tflite_fc2_weights)
+    # Concat op
+    x = tf.concat([x, strided_slice_output], axis=1)
+    # FC (relu) (hidden_kernel matches weights in tflite)
+    x = tf.matmul(x, hidden_kernel)
+    x = tf.nn.relu(x)
+    # FC (Dense layer) (dense_kernel matches weights in tflite)
+    x = tf.matmul(x, dense_kernel)
+    manual_outputs.append(x)
 
 ##################################################
 # tflite computation
@@ -156,9 +200,10 @@ for input in inputs:
 tflite_output = np.array(tflite_output)
 
 # Compare outputs
+fc_dense_outputs = np.array(fc_dense_outputs).flatten()
 manual_outputs = np.array(manual_outputs).flatten()
 model_output = np.array(model_output).flatten()
 tflite_output = np.array(tflite_output).flatten()
 utils.output_stats(model_output, tflite_output, "Keras model vs tflite", 1e-2, 0)
-utils.output_stats(manual_outputs, model_output, "Manual LMU vs Keras Model", 1e-2, 0)
-utils.output_stats(manual_outputs, tflite_output, "Manual LMU vs tflite", 1e-2, 0)
+utils.output_stats(fc_dense_outputs, model_output, "Manual LMU vs Keras Model", 1e-2, 0)
+utils.output_stats(manual_outputs, tflite_output, "Manual FQ LMU vs tflite", 1e-2, 0)
