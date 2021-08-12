@@ -97,6 +97,31 @@ for input in inputs:
 # Run quantized forward pass
 # TODO: finish
 manual_outputs = []
+lmu_kernel_quant = tf.quantization.fake_quant_with_min_max_args(
+    lmu_kernel,
+    min(np.min(lmu_kernel), -np.max(lmu_kernel)),
+    max(np.max(lmu_kernel), -np.min(lmu_kernel)),
+    narrow_range=True,
+)
+tflite_fc2_weights_quant = tf.quantization.fake_quant_with_min_max_args(
+    tflite_fc2_weights,
+    min(np.min(tflite_fc2_weights), -np.max(tflite_fc2_weights)),
+    max(np.max(tflite_fc2_weights), -np.min(tflite_fc2_weights)),
+    narrow_range=True,
+)
+hidden_kernel_quant = tf.quantization.fake_quant_with_min_max_args(
+    hidden_kernel,
+    min(np.min(hidden_kernel), -np.max(hidden_kernel)),
+    max(np.max(hidden_kernel), -np.min(hidden_kernel)),
+    narrow_range=True,
+)
+dense_kernel_quant = tf.quantization.fake_quant_with_min_max_args(
+    dense_kernel,
+    min(np.min(dense_kernel), -np.max(dense_kernel)),
+    max(np.max(dense_kernel), -np.min(dense_kernel)),
+    narrow_range=True,
+)
+
 for input in inputs:
     # run on all inputs
     input = np.expand_dims(input, axis=0)
@@ -115,16 +140,16 @@ for input in inputs:
     # Concat op
     x = tf.concat([strided_slice_output, tf.zeros((1, 10))], axis=1)
     # FC1 (lmu_kernel matches wieghts in tflite)
-    x = tf.matmul(x, lmu_kernel)
+    x = tf.matmul(x, lmu_kernel_quant)
     # FC2
-    x = tf.matmul(x, tflite_fc2_weights)
+    x = tf.matmul(x, tflite_fc2_weights_quant)
     # Concat op
     x = tf.concat([x, strided_slice_output], axis=1)
     # FC (relu) (hidden_kernel matches weights in tflite)
-    x = tf.matmul(x, hidden_kernel)
+    x = tf.matmul(x, hidden_kernel_quant)
     x = tf.nn.relu(x)
     # FC (Dense layer) (dense_kernel matches weights in tflite)
-    x = tf.matmul(x, dense_kernel)
+    x = tf.matmul(x, dense_kernel_quant)
     manual_outputs.append(x)
 
 ##################################################
