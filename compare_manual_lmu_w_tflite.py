@@ -45,7 +45,6 @@ tflite_fc2_weights = np.array(
 ).transpose()
 ##################################################
 # Manual computation - mimicking tflite
-# Using settings from tflite model to recreate tflite model
 ##################################################
 # Similar approach to compare_manual_w_tflite.py
 
@@ -95,8 +94,6 @@ for input in inputs:
     fc_dense_outputs.append(x)
 
 # Run quantized forward pass
-# TODO: finish
-manual_outputs = []
 lmu_kernel_quant = tf.quantization.fake_quant_with_min_max_args(
     lmu_kernel,
     min(np.min(lmu_kernel), -np.max(lmu_kernel)),
@@ -122,9 +119,14 @@ dense_kernel_quant = tf.quantization.fake_quant_with_min_max_args(
     narrow_range=True,
 )
 
+manual_outputs = []
+# run on all inputs
 for input in inputs:
-    # run on all inputs
+    # Quantize inputs
+    p = adjust_params(np.min(inputs), np.max(inputs))
+    input = tf.quantization.fake_quant_with_min_max_args(input, p[0], p[1])
     input = np.expand_dims(input, axis=0)
+    # StridedSlice op
     strided_slice_output = tf.strided_slice(
         input,
         # Settings from tflite model
@@ -150,7 +152,9 @@ for input in inputs:
     x = tf.quantization.fake_quant_with_min_max_args(x, p[0], p[1])
     # FC2
     x = tf.matmul(x, tflite_fc2_weights_quant)
-    p = adjust_params(np.min(fc2_outputs), np.max(fc2_outputs))
+    # Since Concat op needs all inputs to have same quantization spec, use strided_slice_outputs to determine
+    # quantization parameters for FC2 output
+    p = adjust_params(np.min(strided_slice_outputs), np.max(strided_slice_outputs))
     x = tf.quantization.fake_quant_with_min_max_args(x, p[0], p[1])
     # Concat op
     x = tf.concat([x, strided_slice_output], axis=1)
