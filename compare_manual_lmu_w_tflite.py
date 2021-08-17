@@ -76,7 +76,7 @@ for input in inputs:
     # Concat op
     x = tf.concat([strided_slice_output, tf.zeros((1, 10))], axis=1)
     concat1_outputs.append(x)
-    # FC1 (lmu_kernel matches wieghts in tflite)
+    # FC1 (lmu_kernel matches weights in tflite)
     x = tf.matmul(x, lmu_kernel)
     fc1_outputs.append(x)
     # FC2
@@ -119,6 +119,31 @@ dense_kernel_quant = tf.quantization.fake_quant_with_min_max_args(
     narrow_range=True,
 )
 
+print(*calculate_scale_zp_from_min_max(np.min(inputs), np.max(inputs)))
+print(
+    "strided_slice_outputs",
+    *calculate_scale_zp_from_min_max(
+        np.min(strided_slice_outputs), np.max(strided_slice_outputs)
+    )
+)
+print(
+    "fc1_outputs", *calculate_scale_zp_from_min_max(np.min(fc1_outputs), np.max(fc1_outputs))
+)
+print(
+    "fc2_outputs",
+    *calculate_scale_zp_from_min_max(
+        np.min(strided_slice_outputs), np.max(strided_slice_outputs)
+    )
+)
+print(
+    "fc_relu_outputs",
+    *calculate_scale_zp_from_min_max(np.min(fc_relu_outputs), np.max(fc_relu_outputs))
+)
+print(
+    "fc_dense_outputs",
+    *calculate_scale_zp_from_min_max(np.min(fc_dense_outputs), np.max(fc_dense_outputs))
+)
+
 manual_outputs = []
 # run on all inputs
 for input in inputs:
@@ -146,7 +171,7 @@ for input in inputs:
     )
     # Concat op
     x = tf.concat([strided_slice_output, tf.zeros((1, 10))], axis=1)
-    # FC1 (lmu_kernel matches wieghts in tflite)
+    # FC1 (lmu_kernel matches weights in tflite)
     x = tf.matmul(x, lmu_kernel_quant)
     p = adjust_params(np.min(fc1_outputs), np.max(fc1_outputs))
     x = tf.quantization.fake_quant_with_min_max_args(x, p[0], p[1])
