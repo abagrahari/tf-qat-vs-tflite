@@ -1,4 +1,3 @@
-from operator import concat
 import os
 
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
@@ -30,7 +29,7 @@ inputs = rng.uniform(-0.5, 0.5, size=(320, TIMESTEPS, INPUT_D))
 
 lmu_kernel = rng.uniform(-1, 1, size=(14, 1))
 lmu_recurrent = rng.uniform(-1, 1, size=(1, 4))
-hidden_kernel = rng.uniform(-1, 1, size=(8, 10))
+hidden_kernel = rng.uniform(-1, 1, size=(4, 10))
 hidden_recurrent = rng.uniform(-1, 1, size=(10, 10))
 dense_kernel = rng.uniform(-1, 1, size=(10, 10))
 # TODO: where are these weights in unquantized tflite model from??
@@ -53,7 +52,6 @@ strided_slice_outputs = []
 concat1_outputs = []
 fc1_outputs = []
 fc2_outputs = []
-concact2_outputs = []
 fc_relu_outputs = []
 fc_dense_outputs = []
 
@@ -82,9 +80,6 @@ for input in inputs:
     # FC2
     x = tf.matmul(x, tflite_fc2_weights)
     fc2_outputs.append(x)
-    # Concat op
-    x = tf.concat([x, strided_slice_output], axis=1)
-    concact2_outputs.append(x)
     # FC (relu) (hidden_kernel matches weights in tflite)
     x = tf.matmul(x, hidden_kernel)
     x = tf.nn.relu(x)
@@ -130,10 +125,7 @@ print(
     "fc1_outputs", *calculate_scale_zp_from_min_max(np.min(fc1_outputs), np.max(fc1_outputs))
 )
 print(
-    "fc2_outputs",
-    *calculate_scale_zp_from_min_max(
-        np.min(strided_slice_outputs), np.max(strided_slice_outputs)
-    )
+    "fc2_outputs", *calculate_scale_zp_from_min_max(np.min(fc2_outputs), np.max(fc2_outputs))
 )
 print(
     "fc_relu_outputs",
@@ -177,12 +169,8 @@ for input in inputs:
     x = tf.quantization.fake_quant_with_min_max_args(x, p[0], p[1])
     # FC2
     x = tf.matmul(x, tflite_fc2_weights_quant)
-    # Since Concat op needs all inputs to have same quantization spec, use strided_slice_outputs to determine
-    # quantization parameters for FC2 output
-    p = adjust_params(np.min(strided_slice_outputs), np.max(strided_slice_outputs))
+    p = adjust_params(np.min(fc2_outputs), np.max(fc2_outputs))
     x = tf.quantization.fake_quant_with_min_max_args(x, p[0], p[1])
-    # Concat op
-    x = tf.concat([x, strided_slice_output], axis=1)
     # FC (relu) (hidden_kernel matches weights in tflite)
     x = tf.matmul(x, hidden_kernel_quant)
     x = tf.nn.relu(x)
@@ -212,7 +200,7 @@ x = nengo_edge.layers.RNN(
         ),
         hidden_to_memory=True,
         memory_to_memory=True,
-        input_to_hidden=True,
+        input_to_hidden=False,
         kernel_initializer=tf.initializers.constant(lmu_kernel),
         recurrent_initializer=tf.initializers.constant(lmu_recurrent),
     )
