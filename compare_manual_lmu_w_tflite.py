@@ -23,17 +23,17 @@ rng = np.random.RandomState(3)
 
 INPUT_D = 4
 TIMESTEPS = 1
+MEMORY_D = 10
 
 inputs = rng.uniform(-0.5, 0.5, size=(320, TIMESTEPS, INPUT_D))
 # 320 different inputs/sequences, of TIMESTEPS timesteps, and INPUT_D dimensions/features in each input
 
-lmu_kernel = rng.uniform(-1, 1, size=(14, 1))
-lmu_recurrent = rng.uniform(-1, 1, size=(1, 4))
-hidden_kernel = rng.uniform(-1, 1, size=(4, 10))
+lmu_kernel = rng.uniform(-1, 1, size=(14, MEMORY_D))
+lmu_recurrent = rng.uniform(-1, 1, size=(1 * MEMORY_D, 4 * MEMORY_D))
+hidden_kernel = rng.uniform(-1, 1, size=(4 * MEMORY_D, 10))
 hidden_recurrent = rng.uniform(-1, 1, size=(10, 10))
 dense_kernel = rng.uniform(-1, 1, size=(10, 10))
-# TODO: where are these weights in unquantized tflite model from??
-# They also match the weights in the normal Keras model, but don't match expected lmu_recurrent weights
+# Most likely 'B' from an LMU model. values from tflite model through netron.
 tflite_fc2_weights = np.array(
     [
         [0.20077991485595703],
@@ -77,9 +77,13 @@ for input in inputs:
     # FC1 (lmu_kernel matches weights in tflite)
     x = tf.matmul(x, lmu_kernel)
     fc1_outputs.append(x)
+    # Reshape
+    x = tf.reshape(x, [1, MEMORY_D, 1])
     # FC2
     x = tf.matmul(x, tflite_fc2_weights)
     fc2_outputs.append(x)
+    # Reshape
+    x = tf.reshape(x, [1, 4 * MEMORY_D])
     # FC (relu) (hidden_kernel matches weights in tflite)
     x = tf.matmul(x, hidden_kernel)
     x = tf.nn.relu(x)
@@ -167,10 +171,14 @@ for input in inputs:
     x = tf.matmul(x, lmu_kernel_quant)
     p = adjust_params(np.min(fc1_outputs), np.max(fc1_outputs))
     x = tf.quantization.fake_quant_with_min_max_args(x, p[0], p[1])
+    # Reshape
+    x = tf.reshape(x, [1, MEMORY_D, 1])
     # FC2
     x = tf.matmul(x, tflite_fc2_weights_quant)
     p = adjust_params(np.min(fc2_outputs), np.max(fc2_outputs))
     x = tf.quantization.fake_quant_with_min_max_args(x, p[0], p[1])
+    # Reshape
+    x = tf.reshape(x, [1, 4 * MEMORY_D])
     # FC (relu) (hidden_kernel matches weights in tflite)
     x = tf.matmul(x, hidden_kernel_quant)
     x = tf.nn.relu(x)
@@ -189,7 +197,7 @@ for input in inputs:
 inp = tf.keras.Input((TIMESTEPS, INPUT_D))
 x = nengo_edge.layers.RNN(
     keras_lmu.LMUCell(
-        memory_d=1,
+        memory_d=MEMORY_D,
         order=4,
         theta=5,
         hidden_cell=tf.keras.layers.SimpleRNNCell(
@@ -205,7 +213,7 @@ x = nengo_edge.layers.RNN(
         recurrent_initializer=tf.initializers.constant(lmu_recurrent),
     )
 )
-x = x(inp, initial_state=[tf.zeros((1, 10)), tf.zeros((1, 4))])
+x = x(inp, initial_state=[tf.zeros((1, 10)), tf.zeros((1, 4 * MEMORY_D))])
 x = tf.keras.layers.Dense(
     10,
     activation="linear",
