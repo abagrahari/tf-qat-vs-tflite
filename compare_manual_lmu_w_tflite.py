@@ -28,7 +28,7 @@ MEMORY_D = 10
 inputs = rng.uniform(-0.5, 0.5, size=(320, TIMESTEPS, INPUT_D))
 # 320 different inputs/sequences, of TIMESTEPS timesteps, and INPUT_D dimensions/features in each input
 
-lmu_kernel = rng.uniform(-1, 1, size=(14, MEMORY_D))
+lmu_kernel = rng.uniform(-1, 1, size=(4, MEMORY_D))
 lmu_recurrent = rng.uniform(-1, 1, size=(1 * MEMORY_D, 4 * MEMORY_D))
 hidden_kernel = rng.uniform(-1, 1, size=(4 * MEMORY_D, 10))
 hidden_recurrent = rng.uniform(-1, 1, size=(10, 10))
@@ -52,7 +52,8 @@ strided_slice_outputs = []
 concat1_outputs = []
 fc1_outputs = []
 fc2_outputs = []
-fc_relu_outputs = []
+fc3_outputs = []
+relu_outputs = []
 fc_dense_outputs = []
 
 for input in inputs:
@@ -71,23 +72,21 @@ for input in inputs:
         shrink_axis_mask=2,
     ).numpy()
     strided_slice_outputs.append(strided_slice_output)
-    # Concat op
-    x = tf.concat([strided_slice_output, tf.zeros((1, 10))], axis=1)
-    concat1_outputs.append(x)
     # FC1 (lmu_kernel matches weights in tflite)
-    x = tf.matmul(x, lmu_kernel)
+    x = tf.matmul(strided_slice_output, lmu_kernel)
     fc1_outputs.append(x)
-    # Reshape
-    x = tf.reshape(x, [1, MEMORY_D, 1])
-    # FC2
+    # Reshape / ExpandDims
+    x = tf.expand_dims(x, -1)
+    # BatchMatMul / FC2 with `B` matrix
     x = tf.matmul(x, tflite_fc2_weights)
     fc2_outputs.append(x)
     # Reshape
-    x = tf.reshape(x, [1, 4 * MEMORY_D])
+    x = tf.reshape(x, [-1, 4 * MEMORY_D])
     # FC (relu) (hidden_kernel matches weights in tflite)
     x = tf.matmul(x, hidden_kernel)
+    fc3_outputs.append(x)
     x = tf.nn.relu(x)
-    fc_relu_outputs.append(x)
+    relu_outputs.append(x)
     # FC (Dense layer) (dense_kernel matches weights in tflite)
     x = tf.matmul(x, dense_kernel)
     fc_dense_outputs.append(x)
@@ -132,8 +131,11 @@ print(
     "fc2_outputs", *calculate_scale_zp_from_min_max(np.min(fc2_outputs), np.max(fc2_outputs))
 )
 print(
-    "fc_relu_outputs",
-    *calculate_scale_zp_from_min_max(np.min(fc_relu_outputs), np.max(fc_relu_outputs))
+    "fc3_outputs", *calculate_scale_zp_from_min_max(np.min(fc3_outputs), np.max(fc3_outputs))
+)
+print(
+    "relu_outputs",
+    *calculate_scale_zp_from_min_max(np.min(relu_outputs), np.max(relu_outputs))
 )
 print(
     "fc_dense_outputs",
@@ -165,24 +167,24 @@ for input in inputs:
     strided_slice_output = tf.quantization.fake_quant_with_min_max_args(
         strided_slice_output, p[0], p[1]
     )
-    # Concat op
-    x = tf.concat([strided_slice_output, tf.zeros((1, 10))], axis=1)
     # FC1 (lmu_kernel matches weights in tflite)
-    x = tf.matmul(x, lmu_kernel_quant)
+    x = tf.matmul(strided_slice_output, lmu_kernel_quant)
     p = adjust_params(np.min(fc1_outputs), np.max(fc1_outputs))
     x = tf.quantization.fake_quant_with_min_max_args(x, p[0], p[1])
-    # Reshape
-    x = tf.reshape(x, [1, MEMORY_D, 1])
+    # Reshape / ExpandDims
+    x = tf.expand_dims(x, -1)
     # FC2
     x = tf.matmul(x, tflite_fc2_weights_quant)
     p = adjust_params(np.min(fc2_outputs), np.max(fc2_outputs))
     x = tf.quantization.fake_quant_with_min_max_args(x, p[0], p[1])
     # Reshape
-    x = tf.reshape(x, [1, 4 * MEMORY_D])
+    x = tf.reshape(x, [-1, 4 * MEMORY_D])
     # FC (relu) (hidden_kernel matches weights in tflite)
     x = tf.matmul(x, hidden_kernel_quant)
+    p = adjust_params(np.min(relu_outputs), np.max(fc3_outputs))
+    x = tf.quantization.fake_quant_with_min_max_args(x, p[0], p[1])
     x = tf.nn.relu(x)
-    p = adjust_params(np.min(fc_relu_outputs), np.max(fc_relu_outputs))
+    p = adjust_params(np.min(relu_outputs), np.max(relu_outputs))
     x = tf.quantization.fake_quant_with_min_max_args(x, p[0], p[1])
     # FC (Dense layer) (dense_kernel matches weights in tflite)
     x = tf.matmul(x, dense_kernel_quant)
@@ -206,7 +208,7 @@ x = nengo_edge.layers.RNN(
             kernel_initializer=tf.initializers.constant(hidden_kernel),
             recurrent_initializer=tf.initializers.constant(hidden_recurrent),
         ),
-        hidden_to_memory=True,
+        hidden_to_memory=False,
         memory_to_memory=True,
         input_to_hidden=False,
         kernel_initializer=tf.initializers.constant(lmu_kernel),
