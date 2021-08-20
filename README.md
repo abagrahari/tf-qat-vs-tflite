@@ -21,6 +21,30 @@ or to iterate through the different seeds:
 ./run.sh
 ```
 
+## Files:
+
+| File Name                        | Goal                                                                                                                                                           | Start here? |
+|----------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------|
+| `compare_dense.py`               | Minimal version of `main.py`. Comparing use of the CustomLayer with tflite parameters from tflite model, vs. the tflite model                                  |             |
+| `compare_manual_fq_w_qat.py`     | Example of manual computations needed to match a QAT model, using dense model                                                                                  | Yes         |
+| `compare_manual_lmu_w_tflite.py` | Trying to perform manual computations for lmu-based model to match a quantized tflite model                                                                    | Yes         |
+| `compare_manual_w_tflite.py`     | Example of manual computations needed to match a quantized tflite model, using dense model                                                                     | Yes         |
+| `compare_params.py`              | Determining if QAT and tflite quantization parameters are the same                                                                                             |             |
+| `custom_layers.py`               | Methods to adjust quantization parameters like TFLite does, and a CustomLayer that uses quant parameters from tflite model                                     | Yes         |
+| `environment.yml`                | Environment file                                                                                                                                               |             |
+| `github_issue.ipynb`             | File linked in Github issue to demo QAT vs tflite quantization. See https://git.io/J0hWR instead                                                               |             |
+| `github_issue.py`                | See above                                                                                                                                                      |             |
+| `github_issue_compounding.ipynb` | See above                                                                                                                                                      |             |
+| `github_issue_compounding.py`    | See above                                                                                                                                                      |             |
+| `main.py`                        | Comparing QAT model, use of the CustomLayer with tflite parameters from tflite model, and the tflite model                                                     |             |
+| `pyproject.toml`                 | Formatting file                                                                                                                                                |             |
+| `run.sh`                         | Short script to run `main.py` with different seeds, and collect results                                                                                        |             |
+| `test_dequant.py`                | Scratch program made to resolve an overflow issue. Can ignore.                                                                                                 |             |
+| `tflite_runner.py`               | Functions to help create and run a tflite model                                                                                                                |             |
+| `training_example.ipynb`         | Modified version of TensorFlow's original QAT training tutorial from [here](https://www.tensorflow.org/model_optimization/guide/quantization/training_example) |             |
+| `utils.py`                       | Helper functions to print summary statistics between outputs                                                                                                   |             |
+| `verify_tflite.py`               | Scratch program to try extract intermediate outputs from tflite model                                                                                          |             |
+
 ## TF's Documentation on running a model with tflite
 - Running a tflite model
     - https://www.tensorflow.org/lite/guide/inference#load_and_run_a_model_in_python
