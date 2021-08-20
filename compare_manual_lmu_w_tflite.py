@@ -42,10 +42,10 @@ lmu_kernel = rng.uniform(-1, 1, size=(4, MEMORY_D))
 lmu_recurrent = rng.uniform(-1, 1, size=(1 * MEMORY_D, 4 * MEMORY_D))
 hidden_kernel = rng.uniform(-1, 1, size=(4 * MEMORY_D, 10))
 hidden_recurrent = rng.uniform(-1, 1, size=(10, 10))
-dense_kernel = rng.uniform(-1, 1, size=(10, 10))
+dense_kernel = rng.uniform(-1, 1, size=(40, 10))
 
 # Following weights copied from tflite model through netron.
-tflite_fc2_weights = np.array(
+batchmatmul_weights = np.array(
     [
         [0.20077991485595703],
         [-0.4733007252216339],
@@ -69,22 +69,6 @@ add_op_1_input = np.array(
         ]
     ]
 )
-add_op_2_input = np.array(
-    [
-        [
-            -2.8765249252319336,
-            0.01923269033432007,
-            -4.181168556213379,
-            0.25068336725234985,
-            1.6011106967926025,
-            -3.365044355392456,
-            -2.6116573810577393,
-            -3.6765382289886475,
-            -1.1408188343048096,
-            -0.3962428569793701,
-        ]
-    ]
-)
 ##################################################
 # Manual computation - mimicking tflite
 ##################################################
@@ -95,8 +79,6 @@ strided_slice_outputs = []
 fc1_outputs = []
 batchmatmul_outputs = []
 add_outputs = []
-fc2_outputs = []
-add2_relu_outputs = []
 fc_dense_outputs = []
 
 for input in inputs:
@@ -121,27 +103,20 @@ for input in inputs:
     # ExpandDims
     x = tf.expand_dims(x, -1)
     # BatchMatMul with `B` matrix
-    x = tf.matmul(x, tflite_fc2_weights)
+    x = tf.matmul(x, batchmatmul_weights)
     batchmatmul_outputs.append(x)
     # Add
     x = tf.math.add(x, add_op_1_input)
     add_outputs.append(x)
     # Reshape
     x = tf.reshape(x, [-1, 4 * MEMORY_D])
-    # FC2 (hidden_kernel matches weights in tflite)
-    x = tf.matmul(x, hidden_kernel)
-    fc2_outputs.append(x)
-    # Add with ReLU
-    x = tf.math.add(x, add_op_2_input)
-    x = tf.nn.relu(x)
-    add2_relu_outputs.append(x)
     # FC (Dense layer) (dense_kernel matches weights in tflite)
     x = tf.matmul(x, dense_kernel)
     fc_dense_outputs.append(x)
 
 # Run quantized forward pass
 lmu_kernel_quant = get_fq_weights(lmu_kernel)
-tflite_fc2_weights_quant = get_fq_weights(tflite_fc2_weights)
+batchmatmul_weights_quant = get_fq_weights(batchmatmul_weights)
 hidden_kernel_quant = get_fq_weights(hidden_kernel)
 dense_kernel_quant = get_fq_weights(dense_kernel)
 # Inputs to add ops are quantized asymmetrically
@@ -149,11 +124,6 @@ p = adjust_params(np.min(add_op_1_input), np.max(add_op_1_input))
 add_op_1_weights_quant = tf.quantization.fake_quant_with_min_max_args(
     add_op_1_input, p[0], p[1]
 )
-p = adjust_params(np.min(add_op_2_input), np.max(add_op_2_input))
-add_op_2_weights_quant = tf.quantization.fake_quant_with_min_max_args(
-    add_op_2_input, p[0], p[1]
-)
-
 print("input params", *calculate_scale_zp_from_min_max(np.min(inputs), np.max(inputs)))
 print(
     "strided_slice_outputs",
@@ -171,13 +141,6 @@ print(
 )
 print(
     "add_outputs", *calculate_scale_zp_from_min_max(np.min(add_outputs), np.max(add_outputs))
-)
-print(
-    "fc2_outputs", *calculate_scale_zp_from_min_max(np.min(fc2_outputs), np.max(fc2_outputs))
-)
-print(
-    "relu_outputs",
-    *calculate_scale_zp_from_min_max(np.min(add2_relu_outputs), np.max(add2_relu_outputs))
 )
 print(
     "fc_dense_outputs",
@@ -216,7 +179,7 @@ for input in inputs:
     # ExpandDims
     x = tf.expand_dims(x, -1)
     # BatchMatMul with `B` matrix
-    x = tf.matmul(x, tflite_fc2_weights_quant)
+    x = tf.matmul(x, batchmatmul_weights_quant)
     p = adjust_params(np.min(batchmatmul_outputs), np.max(batchmatmul_outputs))
     x = tf.quantization.fake_quant_with_min_max_args(x, p[0], p[1])
     # Add
@@ -226,14 +189,6 @@ for input in inputs:
     # Reshape
     x = tf.reshape(x, [-1, 4 * MEMORY_D])
     # FC2 (hidden_kernel matches weights in tflite)
-    x = tf.matmul(x, hidden_kernel_quant)
-    p = adjust_params(np.min(fc2_outputs), np.max(fc2_outputs))
-    x = tf.quantization.fake_quant_with_min_max_args(x, p[0], p[1])
-    # Add with ReLU
-    x = tf.math.add(x, add_op_2_weights_quant)
-    x = tf.nn.relu(x)
-    p = adjust_params(np.min(add2_relu_outputs), np.max(add2_relu_outputs))
-    x = tf.quantization.fake_quant_with_min_max_args(x, p[0], p[1])
     # FC (Dense layer) (dense_kernel matches weights in tflite)
     x = tf.matmul(x, dense_kernel_quant)
     p = adjust_params(np.min(fc_dense_outputs), np.max(fc_dense_outputs))
@@ -250,12 +205,7 @@ x = nengo_edge.layers.RNN(
         memory_d=MEMORY_D,
         order=4,
         theta=5,
-        hidden_cell=tf.keras.layers.SimpleRNNCell(
-            units=10,
-            activation="relu",
-            kernel_initializer=tf.initializers.constant(hidden_kernel),
-            recurrent_initializer=tf.initializers.constant(hidden_recurrent),
-        ),
+        hidden_cell=None,
         hidden_to_memory=False,
         memory_to_memory=False,
         input_to_hidden=False,
@@ -263,7 +213,7 @@ x = nengo_edge.layers.RNN(
         recurrent_initializer=tf.initializers.constant(lmu_recurrent),
     )
 )
-x = x(inp, initial_state=[tf.ones((1, 10)), tf.ones((1, 4 * MEMORY_D))])
+x = x(inp, initial_state=[tf.ones([1, 4 * MEMORY_D])])
 x = tf.keras.layers.Dense(
     10,
     activation="linear",
